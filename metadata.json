@@ -1,0 +1,6 @@
+{
+  "name": "StockApp",
+  "description": "A simple way to manage your inventory and sales.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
