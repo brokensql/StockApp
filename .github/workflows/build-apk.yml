@@ -34,8 +34,14 @@ jobs:
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
-          yes | sdkmanager --licenses
+          ls "$ANDROID_HOME/cmdline-tools" || true
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SDKMANAGER" ]; then
+            "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0" "platform-tools" || true
+            yes | "$SDKMANAGER" --licenses || true
+          else
+            echo "sdkmanager not found at $SDKMANAGER, relying on preinstalled SDK"
+          fi
 
       - name: Add Capacitor Android platform (idempotent)
         run: npx --yes cap add android
