@@ -4,8 +4,13 @@ import App from './App.tsx';
 import './index.css';
 import { registerSW } from 'virtual:pwa-register';
 
-// Register service worker in production for offline caching and automatic updates
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+const isNative =
+  typeof (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } })
+    .Capacitor !== 'undefined' &&
+  (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } })
+    .Capacitor?.isNativePlatform?.() === true;
+
+if (import.meta.env.PROD && 'serviceWorker' in navigator && !isNative) {
   registerSW({
     immediate: true,
     onNeedRefresh() {
@@ -22,4 +27,3 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
-
