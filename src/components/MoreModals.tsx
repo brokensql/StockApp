@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Check, Download, Info, Settings as SettingsIcon, BarChart3, LayoutGrid, AlertCircle } from 'lucide-react';
+import { X, Check, Download, Info, Settings as SettingsIcon, BarChart3, LayoutGrid, AlertCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Product, SaleTransaction } from '../types';
+import { checkForAppUpdate } from '../utils/pwaUpdate';
 
 interface MoreModalProps {
   type: 'categories' | 'reports' | 'backup' | 'settings' | 'about' | null;
@@ -21,6 +22,7 @@ export const MoreModals: React.FC<MoreModalProps> = ({
   const [defaultThreshold, setDefaultThreshold] = useState('5');
   const [storeName, setStoreName] = useState('My Sari-Sari Store');
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
   // Group products by category
   const categoriesMap = React.useMemo(() => {
@@ -79,6 +81,24 @@ export const MoreModals: React.FC<MoreModalProps> = ({
       setSettingsSaved(false);
       onClose();
     }, 1000);
+  };
+
+  const handleCheckUpdate = async () => {
+    setIsCheckingUpdate(true);
+    try {
+      const result = await checkForAppUpdate();
+      if (result.status === 'updated') {
+        toast.success(result.message);
+      } else if (result.status === 'offline') {
+        toast.error(result.message);
+      } else {
+        toast.info(result.message);
+      }
+    } catch {
+      toast.info('App is up to date.');
+    } finally {
+      setIsCheckingUpdate(false);
+    }
   };
 
   if (!type) return null;
@@ -277,8 +297,12 @@ export const MoreModals: React.FC<MoreModalProps> = ({
             {/* About View */}
             {type === 'about' && (
               <div className="space-y-4 text-center">
-                <div className="w-14 h-14 rounded-2xl bg-[#4F8065]/10 border border-[#4F8065]/20 flex items-center justify-center text-[#4F8065] mx-auto">
-                  <Info size={24} strokeWidth={2} />
+                <div className="w-16 h-16 rounded-2xl border border-[#DEE3DE] bg-white shadow-xs overflow-hidden mx-auto flex items-center justify-center p-1">
+                  <img
+                    src="/icon_192.png"
+                    alt="StockApp Logo"
+                    className="w-full h-full object-contain rounded-xl"
+                  />
                 </div>
 
                 <div>
@@ -297,7 +321,17 @@ export const MoreModals: React.FC<MoreModalProps> = ({
                   A modern, mobile-native point-of-sale and inventory manager. Fully cached for offline reliability with instant local data persistence.
                 </p>
 
-                <div className="pt-3">
+                <div className="pt-2 space-y-2">
+                  <button
+                    type="button"
+                    onClick={handleCheckUpdate}
+                    disabled={isCheckingUpdate}
+                    className="w-full h-11 bg-[#4F8065]/10 border border-[#4F8065]/25 text-[#4F8065] text-[14px] font-semibold rounded-xl flex items-center justify-center gap-2 cursor-pointer hover:bg-[#4F8065]/15 transition-colors disabled:opacity-60"
+                  >
+                    <RefreshCw size={15} className={isCheckingUpdate ? 'animate-spin' : ''} />
+                    {isCheckingUpdate ? 'Checking for updates...' : 'Check for updates'}
+                  </button>
+
                   <button
                     type="button"
                     onClick={onClose}

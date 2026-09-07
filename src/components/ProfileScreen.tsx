@@ -20,10 +20,13 @@ import {
   Info,
   ChevronRight,
   Globe,
+  RefreshCw,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Product, SaleTransaction, UserProfile } from '../types';
 import { MoreModals } from './MoreModals';
 import { PWAInstallButton } from './PWAInstallButton';
+import { checkForAppUpdate } from '../utils/pwaUpdate';
 
 interface ProfileScreenProps {
   products: Product[];
@@ -71,6 +74,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [confirmResetData, setConfirmResetData] = useState(false);
   const [resetSuccessMessage, setResetSuccessMessage] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
   const [formData, setFormData] = useState<UserProfile>(profile);
 
@@ -78,6 +82,24 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   React.useEffect(() => {
     setFormData(profile);
   }, [profile]);
+
+  const handleCheckUpdate = async () => {
+    setIsCheckingUpdate(true);
+    try {
+      const result = await checkForAppUpdate();
+      if (result.status === 'updated') {
+        toast.success(result.message);
+      } else if (result.status === 'offline') {
+        toast.error(result.message);
+      } else {
+        toast.info(result.message);
+      }
+    } catch {
+      toast.info('App is up to date.');
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -470,6 +492,27 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                   </div>
                 </div>
                 <PWAInstallButton variant="button" />
+              </div>
+
+              <div className="p-3.5 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-[#4F8065]/10 border border-[#4F8065]/20 flex items-center justify-center text-[#4F8065]">
+                    <RefreshCw size={16} className={isCheckingUpdate ? 'animate-spin' : ''} />
+                  </div>
+                  <div>
+                    <p className="text-[14px] font-medium text-[#252825]">Check for Updates</p>
+                    <p className="text-[12px] text-[#6E746F]">Sync latest app build & cookie</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCheckUpdate}
+                  disabled={isCheckingUpdate}
+                  className="px-3 py-1.5 bg-[#4F8065]/10 border border-[#4F8065]/25 hover:bg-[#4F8065]/15 text-[#4F8065] text-[12px] font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw size={12} className={isCheckingUpdate ? 'animate-spin' : ''} />
+                  {isCheckingUpdate ? 'Checking...' : 'Check'}
+                </button>
               </div>
 
               <div className="p-3.5 flex items-center justify-between">

@@ -49,6 +49,12 @@ jobs:
       - name: Sync web assets into android/app
         run: npx cap sync android
 
+      - name: Declare camera permission for barcode scanner
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          grep -q "android.permission.CAMERA" "$MANIFEST" || sed -i 's|<application|<uses-permission android:name="android.permission.CAMERA"/>\n  <application|' "$MANIFEST"
+          grep -n "uses-permission" "$MANIFEST"
+
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 

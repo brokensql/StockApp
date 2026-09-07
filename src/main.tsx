@@ -2,7 +2,8 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
-import { registerSW } from 'virtual:pwa-register';
+import { StatusBar, Style } from '@capacitor/status-bar';
+import { initPWAUpdateManager } from './utils/pwaUpdate';
 
 const isNative =
   typeof (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } })
@@ -10,17 +11,13 @@ const isNative =
   (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } })
     .Capacitor?.isNativePlatform?.() === true;
 
-if (import.meta.env.PROD && 'serviceWorker' in navigator && !isNative) {
-  registerSW({
-    immediate: true,
-    onNeedRefresh() {
-      console.log('New content available, reload to update.');
-    },
-    onOfflineReady() {
-      console.log('App ready to work offline.');
-    },
-  });
+if (isNative) {
+  StatusBar.setBackgroundColor({ color: '#F7F9FB' }).catch(() => {});
+  StatusBar.setStyle({ style: Style.Light }).catch(() => {});
 }
+
+// Initialize PWA auto-updater and session/cookie verification
+initPWAUpdateManager();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -71,34 +71,111 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Custom Navy Blue Toast overrides */
+  /* Custom Navy Blue Toast overrides - snugly hugging text width across the entire app */
+  [data-sonner-toaster] {
+    --width: fit-content !important;
+    width: fit-content !important;
+    max-width: calc(100vw - 32px) !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    display: flex !important;
+    justify-content: center !important;
+    pointer-events: none !important;
+  }
+
   [data-sonner-toaster] [data-sonner-toast] {
     background-color: #0F172A !important;
     color: #FFFFFF !important;
-    border: none !important;
+    border: 1px solid rgba(51, 65, 85, 0.4) !important;
     outline: none !important;
-    box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.35) !important;
+    box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.45) !important;
     border-radius: 14px !important;
-    padding: 10px 14px !important;
+    padding: 8px 15px !important;
     min-height: unset !important;
+    width: fit-content !important;
+    max-width: calc(100vw - 32px) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    pointer-events: auto !important;
+  }
+
+  [data-sonner-toaster] [data-sonner-toast] [data-content] {
+    width: fit-content !important;
+    max-width: fit-content !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
 
   [data-sonner-toaster] [data-sonner-toast] [data-title] {
     color: #FFFFFF !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
     font-size: 13.5px !important;
     line-height: 1.35 !important;
+    white-space: nowrap !important;
+    width: fit-content !important;
   }
 
   [data-sonner-toaster] [data-sonner-toast] [data-description] {
     color: #CBD5E1 !important;
-    font-weight: 600 !important;
-    font-size: 12.5px !important;
+    font-weight: 500 !important;
+    font-size: 12px !important;
     line-height: 1.35 !important;
     margin-top: 2px !important;
+    white-space: nowrap !important;
+    width: fit-content !important;
   }
 
   [data-sonner-toaster] [data-sonner-toast] [data-icon] {
     color: #38BDF8 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin-right: 2px !important;
+    flex-shrink: 0 !important;
   }
+}
+
+/* Hardware-accelerated Laser Scanner & Glowing Dots Animation */
+@keyframes laser-sweep {
+  0% {
+    top: 8%;
+    opacity: 0.85;
+  }
+  50% {
+    top: 92%;
+    opacity: 1;
+  }
+  100% {
+    top: 8%;
+    opacity: 0.85;
+  }
+}
+
+@keyframes dot-pulse {
+  0%, 100% {
+    transform: scale(0.9);
+    filter: drop-shadow(0 0 4px #ef4444);
+  }
+  50% {
+    transform: scale(1.3);
+    filter: drop-shadow(0 0 10px #ef4444) drop-shadow(0 0 18px #ff4d4d);
+  }
+}
+
+.animate-laser-sweep {
+  animation: laser-sweep 2.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  will-change: top, opacity;
+}
+
+.animate-laser-sweep-fast {
+  animation: laser-sweep 1.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  will-change: top, opacity;
+}
+
+.animate-dot-pulse {
+  animation: dot-pulse 1.4s ease-in-out infinite;
+  will-change: transform, filter;
 }

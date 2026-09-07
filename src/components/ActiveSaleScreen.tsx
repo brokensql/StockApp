@@ -307,7 +307,10 @@ export const ActiveSaleScreen: React.FC<ActiveSaleScreenProps> = ({
       transition={{ duration: 0.22, ease: 'easeOut' }}
       className="w-full max-w-[430px] mx-auto min-h-[100dvh] bg-[#F7F9FB] flex flex-col justify-between"
     >
-      <div className="px-5 pt-6 pb-28">
+      <div
+        className="px-5 pt-6 pb-28"
+        style={{ paddingTop: 'calc(1.5rem + env(safe-area-inset-top, 0px))' }}
+      >
         {/* Top Header */}
         <header className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -562,7 +565,7 @@ export const ActiveSaleScreen: React.FC<ActiveSaleScreenProps> = ({
                 type="button"
                 onClick={handleFinalizeSale}
                 disabled={isShortCash}
-                className="w-full h-12 bg-[#4F8065] active:bg-[#3D684F] hover:bg-[#437258] disabled:opacity-50 disabled:cursor-not-allowed text-white text-[15px] font-bold rounded-2xl flex items-center justify-center cursor-pointer shadow-sm transition-all"
+                className="w-full h-12 bg-[#4F8065] active:bg-[#3D684F] hover:bg-[#437258] disabled:opacity-50 disabled:cursor-not-allowed text-white text-[15px] font-bold rounded-full flex items-center justify-center cursor-pointer shadow-sm transition-all"
               >
                 <span>Complete Sale</span>
               </button>
@@ -605,8 +608,6 @@ export const ActiveSaleScreen: React.FC<ActiveSaleScreenProps> = ({
           handleAddToCart(prod);
           setUnrecognizedBarcode(null);
         }}
-        allowMultiScan={true}
-        defaultMode="multi"
         title="Scan Barcode"
       />
 

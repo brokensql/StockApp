@@ -1,7 +1,6 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  CameraOff,
   X,
   Upload,
   Check,
@@ -10,25 +9,19 @@ import {
   ZapOff,
   ZoomIn,
   ZoomOut,
-  Sparkles,
-  Layers,
   ScanLine,
-  Plus,
-  Minus,
-  Trash2,
-  ChevronUp,
-  ChevronDown,
-  ArrowLeft,
   AlertCircle,
-  ShoppingBag,
-  Banknote,
-  Smartphone,
-  CreditCard,
+  Keyboard,
+  ShoppingCart,
+  ChevronRight,
+  Undo2,
+  Redo2,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType } from '@zxing/library';
-import { Product, SaleItem, SaleTransaction, PaymentMethod } from '../types';
-import { formatPHTTimestamp } from '../utils/philippineDate';
+import { Product, SaleItem, SaleTransaction } from '../types';
 
 // Web standard Native BarcodeDetector interface
 interface DetectedBarcode {
@@ -51,11 +44,6 @@ declare global {
   }
 }
 
-export interface ScannedProductItem {
-  product: Product;
-  quantity: number;
-}
-
 export interface BarcodeScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -63,13 +51,20 @@ export interface BarcodeScannerModalProps {
   onProceedToActiveSale?: (items: SaleItem[], unrecognizedBarcode?: string | null) => void;
   title?: string;
   products?: Product[];
+  onItemScanned?: (product: Product) => void;
+  // Deprecated legacy props kept for type compatibility
+  allowMultiScan?: boolean;
+  defaultMode?: 'single' | 'multi';
   onCompleteMultiSale?: (
     newTransaction: SaleTransaction,
     updatedProducts: Product[]
   ) => void;
-  onItemScanned?: (product: Product) => void;
-  allowMultiScan?: boolean;
-  defaultMode?: 'single' | 'multi';
+}
+
+interface HistorySnapshot {
+  cart: SaleItem[];
+  unrecognizedBarcode: string | null;
+  actionTitle?: string;
 }
 
 // Target high-frequency retail barcode formats for maximum speed & accuracy
@@ -118,78 +113,141 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   onClose,
   onScanSuccess,
   onProceedToActiveSale,
-  title = 'Scan Barcode',
   products = [],
-  onCompleteMultiSale,
   onItemScanned,
-  allowMultiScan = true,
-  defaultMode = 'multi',
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const frameCallbackIdRef = useRef<number | null>(null);
-  const isScanningActiveRef = useRef<boolean>(false);
-  const lastScannedMapRef = useRef<Record<string, number>>({});
-  const scanToastTimerRef = useRef<number | null>(null);
 
-  // Scanner modes: 'multi' (continuous scanning of multiple items) vs 'single' (traditional 1-item capture)
-  const [scanMode, setScanMode] = useState<'single' | 'multi'>(() => {
-    if (defaultMode) return defaultMode;
-    const saved = localStorage.getItem('pos_scanner_mode_pref');
-    if (saved === 'single' || saved === 'multi') return saved;
-    return allowMultiScan && products.length > 0 ? 'multi' : 'single';
-  });
+  // Input Method: 'barcode' (camera live scanner) vs 'key' (manual code typing)
+  const [inputMethod, setInputMethod] = useState<'barcode' | 'key'>('barcode');
+  const [manualBarcodes, setManualBarcodes] = useState<string[]>(['']);
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+
+  // Undo / Redo history state
+  const [cartHistory, setCartHistory] = useState<HistorySnapshot[]>([
+    { cart: [], unrecognizedBarcode: null },
+  ]);
+  const [historyIndex, setHistoryIndex] = useState<number>(0);
+
+  const currentSnapshot = cartHistory[historyIndex] || { cart: [], unrecognizedBarcode: null };
+  const scannedCart = currentSnapshot.cart;
+  const unrecognizedBarcode = currentSnapshot.unrecognizedBarcode;
+
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < cartHistory.length - 1;
 
   // Camera & hardware states
   const [hasCamera, setHasCamera] = useState<boolean | null>(null);
-  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [, setCameraError] = useState<string | null>(null);
   const [torchAvailable, setTorchAvailable] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [zoomAvailable, setZoomAvailable] = useState(false);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [maxZoom, setMaxZoom] = useState<number>(1);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
-  const [detectedCode, setDetectedCode] = useState<string | null>(null);
-  const [isEngineNative, setIsEngineNative] = useState<boolean>(false);
   const [focusTapPos, setFocusTapPos] = useState<{ x: number; y: number } | null>(null);
 
-  // Multi-scan state
-  const [scannedCart, setScannedCart] = useState<ScannedProductItem[]>([]);
-  const [isCartExpanded, setIsCartExpanded] = useState<boolean>(false);
-  const [isConfirmingOrder, setIsConfirmingOrder] = useState<boolean>(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
-  const [cashTendered, setCashTendered] = useState<string>('');
-  const [reticleFlash, setReticleFlash] = useState<'green' | 'amber' | null>(null);
+  // 5-second scan window state & refs
+  const [isScanningActive, setIsScanningActive] = useState<boolean>(false);
+  const isScanningActiveRef = useRef<boolean>(false);
+  const scanTimeoutRef = useRef<number | null>(null);
+
+  // Snug Navy Blue in-modal toast
   const [scanToast, setScanToast] = useState<{
     id: number;
     type: 'success' | 'warning' | 'info';
     title: string;
     subtitle?: string;
   } | null>(null);
-  const [itemToDelete, setItemToDelete] = useState<{ id: string; name: string } | null>(null);
+  const toastDismissTimerRef = useRef<number | null>(null);
 
-  const totalUnits = useMemo(
-    () => scannedCart.reduce((sum, item) => sum + item.quantity, 0),
-    [scannedCart]
-  );
-  const totalAmount = useMemo(
-    () => scannedCart.reduce((sum, item) => sum + item.product.price * item.quantity, 0),
-    [scannedCart]
-  );
+  // Computed counts
+  const totalQuantity = scannedCart.reduce((sum, item) => sum + item.quantity, 0);
+  const totalAmount = scannedCart.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
 
-  const tenderedNum = parseFloat(cashTendered) || 0;
-  const changeDue = Math.max(0, tenderedNum - totalAmount);
-  const isTenderValid = cashTendered === '' || tenderedNum >= totalAmount;
-
-  const handleToggleMode = (newMode: 'single' | 'multi') => {
-    setScanMode(newMode);
-    try {
-      localStorage.setItem('pos_scanner_mode_pref', newMode);
-    } catch {
-      // ignore
-    }
+  // Keep latest props in ref so scan callbacks never cause camera pipeline effect re-triggers
+  const propsRef = useRef({
+    products,
+    onScanSuccess,
+    onProceedToActiveSale,
+    onClose,
+    onItemScanned,
+  });
+  propsRef.current = {
+    products,
+    onScanSuccess,
+    onProceedToActiveSale,
+    onClose,
+    onItemScanned,
   };
+
+  const handleScanResultRef = useRef<(text: string) => void>(() => {});
+
+  // Push new history state
+  const pushHistory = useCallback(
+    (newCart: SaleItem[], newUnrecognized: string | null, actionTitle?: string) => {
+      setCartHistory((prev) => {
+        const next = prev.slice(0, historyIndex + 1);
+        return [
+          ...next,
+          {
+            cart: newCart,
+            unrecognizedBarcode: newUnrecognized,
+            actionTitle,
+          },
+        ];
+      });
+      setHistoryIndex((prev) => prev + 1);
+    },
+    [historyIndex]
+  );
+
+  // Undo Handler
+  const handleUndo = useCallback(() => {
+    if (!canUndo) return;
+    const targetIdx = historyIndex - 1;
+    const targetSnapshot = cartHistory[targetIdx];
+    setHistoryIndex(targetIdx);
+
+    if (toastDismissTimerRef.current) {
+      clearTimeout(toastDismissTimerRef.current);
+    }
+    const remainingCount = targetSnapshot.cart.reduce((s, i) => s + i.quantity, 0);
+    setScanToast({
+      id: Date.now(),
+      type: 'info',
+      title: 'Action Undone',
+      subtitle: remainingCount > 0 ? `${remainingCount} item${remainingCount > 1 ? 's' : ''} in cart` : 'Cart is empty',
+    });
+    toastDismissTimerRef.current = window.setTimeout(() => {
+      setScanToast(null);
+    }, 2500);
+  }, [canUndo, historyIndex, cartHistory]);
+
+  // Redo Handler
+  const handleRedo = useCallback(() => {
+    if (!canRedo) return;
+    const targetIdx = historyIndex + 1;
+    const targetSnapshot = cartHistory[targetIdx];
+    setHistoryIndex(targetIdx);
+
+    if (toastDismissTimerRef.current) {
+      clearTimeout(toastDismissTimerRef.current);
+    }
+    const count = targetSnapshot.cart.reduce((s, i) => s + i.quantity, 0);
+    setScanToast({
+      id: Date.now(),
+      type: 'info',
+      title: 'Action Redone',
+      subtitle: `${count} item${count > 1 ? 's' : ''} in cart`,
+    });
+    toastDismissTimerRef.current = window.setTimeout(() => {
+      setScanToast(null);
+    }, 2500);
+  }, [canRedo, historyIndex, cartHistory]);
 
   // Play crisp POS beep audio on scan detection
   const playBeep = useCallback(() => {
@@ -224,142 +282,30 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   }, []);
 
-  const handleUpdateCartQty = (productId: string, delta: number) => {
-    const item = scannedCart.find((it) => it.product.id === productId);
-    if (!item) return;
-
-    if (delta < 0 && item.quantity <= 1) {
-      setItemToDelete({ id: productId, name: item.product.name });
-      return;
-    }
-
-    setScannedCart((prev) =>
-      prev
-        .map((it) => {
-          if (it.product.id !== productId) return it;
-          const nextQty = it.quantity + delta;
-          if (nextQty <= 0) return null;
-          if (nextQty > it.product.stock) {
-            setScanToast({
-              id: Date.now(),
-              type: 'warning',
-              title: 'Max Stock Reached',
-              subtitle: `Only ${it.product.stock} units available in inventory`,
-            });
-            return it;
-          }
-          return { ...it, quantity: nextQty };
-        })
-        .filter((it): it is ScannedProductItem => it !== null)
-    );
-  };
-
-  const handleRemoveFromCart = (productId: string) => {
-    setScannedCart((prev) => prev.filter((item) => item.product.id !== productId));
-  };
-
-  const handleClearCart = () => {
-    setScannedCart([]);
-    setIsCartExpanded(false);
-  };
-
-  // Keep latest props in ref so scan callbacks never cause camera pipeline effect re-triggers
-  const propsRef = useRef({
-    products,
-    onScanSuccess,
-    onProceedToActiveSale,
-    onClose,
-    onItemScanned,
-    scanMode,
-    allowMultiScan,
-  });
-  propsRef.current = {
-    products,
-    onScanSuccess,
-    onProceedToActiveSale,
-    onClose,
-    onItemScanned,
-    scanMode,
-    allowMultiScan,
-  };
-
-  const handleScanResultRef = useRef<(text: string) => void>(() => {});
-
-  // Main scan result handler supporting both Continuous Multi-Product and Single Scan
+  // Main scan result handler - updates history & shows pure toaster (no middle popup)
   const handleScanResult = useCallback(
     (text: string) => {
       const clean = text.trim();
       if (!clean) return;
 
+      // Only accept detections when the 5-second scan window is active
+      if (!isScanningActiveRef.current) return;
+
+      // Stop scanning session for this trigger and clear 5s timeout
+      isScanningActiveRef.current = false;
+      setIsScanningActive(false);
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+        scanTimeoutRef.current = null;
+      }
+
+      playBeep();
+
       const {
         products: currentProducts,
-        onScanSuccess: currentOnScanSuccess,
-        onProceedToActiveSale: currentOnProceedToActiveSale,
-        onClose: currentOnClose,
         onItemScanned: currentOnItemScanned,
-        scanMode: currentScanMode,
-        allowMultiScan: currentAllowMultiScan,
       } = propsRef.current;
 
-      // SINGLE SCAN MODE: Trigger callback and immediately transition to 1 whole page
-      if (currentScanMode === 'single' || !currentAllowMultiScan) {
-        if (!isScanningActiveRef.current) return;
-        isScanningActiveRef.current = false;
-        setDetectedCode(clean);
-        playBeep();
-
-        if (controlsRef.current) {
-          controlsRef.current.stop();
-          controlsRef.current = null;
-        }
-        if (frameCallbackIdRef.current !== null) {
-          cancelAnimationFrame(frameCallbackIdRef.current);
-          frameCallbackIdRef.current = null;
-        }
-
-        setTimeout(() => {
-          if (currentOnProceedToActiveSale) {
-            const matched = currentProducts.find(
-              (p) =>
-                (p.sku && p.sku.trim().toLowerCase() === clean.toLowerCase()) ||
-                p.id.toLowerCase() === clean.toLowerCase() ||
-                p.name.trim().toLowerCase() === clean.toLowerCase()
-            );
-            if (matched) {
-              currentOnProceedToActiveSale(
-                [
-                  {
-                    productId: matched.id,
-                    name: matched.name,
-                    unitPrice: matched.price,
-                    quantity: 1,
-                    category: matched.category,
-                  },
-                ],
-                null
-              );
-            } else {
-              currentOnProceedToActiveSale([], clean);
-            }
-          } else if (currentOnScanSuccess) {
-            currentOnScanSuccess(clean);
-          }
-          currentOnClose();
-        }, 200);
-        return;
-      }
-
-      // CONTINUOUS MULTI-PRODUCT SCAN MODE:
-      // Camera stays live and keeps decoding so customer's multiple items can be scanned consecutively
-      const now = Date.now();
-      const lastScanned = lastScannedMapRef.current[clean] || 0;
-      // 1.25s debounce on the exact same barcode to prevent rapid duplicate bursts
-      if (now - lastScanned < 1250) {
-        return;
-      }
-      lastScannedMapRef.current[clean] = now;
-
-      // Look up product in inventory
       const matched = currentProducts.find(
         (p) =>
           (p.sku && p.sku.trim().toLowerCase() === clean.toLowerCase()) ||
@@ -368,129 +314,188 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       );
 
       if (matched) {
-        playBeep();
-        setReticleFlash('green');
-        setTimeout(() => setReticleFlash(null), 380);
-
-        setScannedCart((prev) => {
-          const idx = prev.findIndex((i) => i.product.id === matched.id);
-          if (idx >= 0) {
-            const currentQty = prev[idx].quantity;
-            if (currentQty >= matched.stock) {
-              setScanToast({
-                id: Date.now(),
-                type: 'warning',
-                title: `Max Stock Reached`,
-                subtitle: `"${matched.name}" has no more available stock (${matched.stock})`,
-              });
-              return prev;
-            }
-            const updated = [...prev];
-            updated[idx] = { ...updated[idx], quantity: currentQty + 1 };
-            setScanToast({
-              id: Date.now(),
-              type: 'success',
-              title: `${matched.name} (x${currentQty + 1})`,
-              subtitle: `₱${(matched.price * (currentQty + 1)).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-            });
-            return updated;
-          } else {
-            if (matched.stock <= 0) {
-              setScanToast({
-                id: Date.now(),
-                type: 'warning',
-                title: 'Out of Stock',
-                subtitle: `"${matched.name}" currently has 0 units in inventory`,
-              });
-              return prev;
-            }
-            setScanToast({
-              id: Date.now(),
-              type: 'success',
-              title: `Added ${matched.name}`,
-              subtitle: `₱${matched.price.toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
-            });
-            return [...prev, { product: matched, quantity: 1 }];
-          }
-        });
-
         if (currentOnItemScanned) {
           currentOnItemScanned(matched);
         }
+
+        const existingIdx = scannedCart.findIndex((item) => item.productId === matched.id);
+        let updatedCart: SaleItem[];
+        if (existingIdx >= 0) {
+          updatedCart = [...scannedCart];
+          updatedCart[existingIdx] = {
+            ...updatedCart[existingIdx],
+            quantity: updatedCart[existingIdx].quantity + 1,
+          };
+        } else {
+          updatedCart = [
+            ...scannedCart,
+            {
+              productId: matched.id,
+              name: matched.name,
+              unitPrice: matched.price,
+              quantity: 1,
+              category: matched.category,
+            },
+          ];
+        }
+
+        pushHistory(updatedCart, unrecognizedBarcode, matched.name);
+
+        setScanToast({
+          id: Date.now(),
+          type: 'success',
+          title: matched.name,
+          subtitle: `₱${matched.price.toFixed(2)} • Added to cart`,
+        });
       } else {
-        // Unrecognized barcode
-        setReticleFlash('amber');
-        setTimeout(() => setReticleFlash(null), 380);
+        // Unrecognized barcode: Do NOT say "Barcode added", show accurate warning toast
+        pushHistory(scannedCart, clean, 'Unrecognized');
+
         setScanToast({
           id: Date.now(),
           type: 'warning',
-          title: 'Product Not Found',
-          subtitle: `Barcode "${clean}" is not in product catalog`,
+          title: 'Unrecognized Barcode',
+          subtitle: `Barcode: ${clean}`,
         });
       }
 
-      if (scanToastTimerRef.current) {
-        clearTimeout(scanToastTimerRef.current);
+      if (toastDismissTimerRef.current) {
+        clearTimeout(toastDismissTimerRef.current);
       }
-      scanToastTimerRef.current = window.setTimeout(() => {
+      toastDismissTimerRef.current = window.setTimeout(() => {
         setScanToast(null);
-      }, 2200);
+      }, 3000);
     },
-    [playBeep]
+    [playBeep, scannedCart, unrecognizedBarcode, pushHistory]
   );
 
   handleScanResultRef.current = handleScanResult;
 
-  // Complete Order confirmation in multi-scan mode
-  const handleCompleteOrder = () => {
-    if (scannedCart.length === 0) return;
+  // Checkout handler: only goes to sales checkout when Checkout is clicked
+  const handleCheckout = useCallback(() => {
+    if (scannedCart.length === 0 && !unrecognizedBarcode) return;
 
-    const now = new Date();
-    const nowEpoch = now.getTime();
-    const timeStr = formatPHTTimestamp(now);
-    const txNumber = `TX-${Math.floor(1000 + Math.random() * 9000)}`;
+    const {
+      onProceedToActiveSale: currentOnProceedToActiveSale,
+      onScanSuccess: currentOnScanSuccess,
+      onClose: currentOnClose,
+    } = propsRef.current;
 
-    const newTx: SaleTransaction = {
-      id: `tx-${nowEpoch}`,
-      transactionNumber: txNumber,
-      timestamp: timeStr,
-      createdAt: nowEpoch,
-      items: scannedCart.map((i) => ({
-        productId: i.product.id,
-        name: i.product.name,
-        unitPrice: i.product.price,
-        quantity: i.quantity,
-        category: i.product.category,
-      })),
-      subtotal: totalAmount,
-      total: totalAmount,
-      paymentMethod,
-      itemCount: totalUnits,
-      primaryItemName:
-        scannedCart.length === 1
-          ? scannedCart[0].product.name
-          : `${scannedCart[0].product.name} +${scannedCart.length - 1} more`,
-    };
+    if (currentOnProceedToActiveSale) {
+      currentOnProceedToActiveSale(scannedCart, unrecognizedBarcode);
+    } else if (currentOnScanSuccess) {
+      const firstCode = scannedCart[0]?.productId || unrecognizedBarcode || '';
+      currentOnScanSuccess(firstCode);
+    }
+    currentOnClose();
+  }, [scannedCart, unrecognizedBarcode]);
 
-    const updatedProducts = products.map((prod) => {
-      const inCart = scannedCart.find((i) => i.product.id === prod.id);
-      if (inCart) {
-        return {
-          ...prod,
-          stock: Math.max(0, prod.stock - inCart.quantity),
-        };
-      }
-      return prod;
-    });
-
-    if (onCompleteMultiSale) {
-      onCompleteMultiSale(newTx, updatedProducts);
+  // Trigger a maximum 5-second scan session on button click
+  const triggerScanSession = useCallback(() => {
+    // Clear any previous timer
+    if (scanTimeoutRef.current) {
+      clearTimeout(scanTimeoutRef.current);
+      scanTimeoutRef.current = null;
+    }
+    if (toastDismissTimerRef.current) {
+      clearTimeout(toastDismissTimerRef.current);
+      toastDismissTimerRef.current = null;
     }
 
-    setScannedCart([]);
-    setIsConfirmingOrder(false);
-    setIsCartExpanded(false);
-    onClose();
+    if (navigator.vibrate) {
+      try {
+        navigator.vibrate(40);
+      } catch {
+        // ignore
+      }
+    }
+
+    // Activate scanning window
+    setIsScanningActive(true);
+    isScanningActiveRef.current = true;
+
+    // Show toaster: "Scanning for barcode" (strictly NO countdown)
+    setScanToast({
+      id: Date.now(),
+      type: 'info',
+      title: 'Scanning for barcode',
+    });
+
+    // Check if a barcode is already sharp and visible in front of lens
+    if (videoRef.current && typeof window !== 'undefined' && 'BarcodeDetector' in window && window.BarcodeDetector) {
+      try {
+        const detector = new window.BarcodeDetector({ formats: RETAIL_NATIVE_FORMATS });
+        if (videoRef.current.readyState >= 2) {
+          detector
+            .detect(videoRef.current)
+            .then((barcodes) => {
+              if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                handleScanResultRef.current(barcodes[0].rawValue);
+              }
+            })
+            .catch(() => {});
+        }
+      } catch {
+        // Handled by continuous loop
+      }
+    }
+
+    // 5-second maximum scan duration
+    scanTimeoutRef.current = window.setTimeout(() => {
+      setIsScanningActive(false);
+      isScanningActiveRef.current = false;
+      scanTimeoutRef.current = null;
+
+      setScanToast({
+        id: Date.now(),
+        type: 'warning',
+        title: 'No barcode found',
+        subtitle: 'Click the scan button to scan again',
+      });
+
+      toastDismissTimerRef.current = window.setTimeout(() => {
+        setScanToast(null);
+      }, 3500);
+    }, 5000);
+  }, []);
+
+  // Modal lifecycle & cleanup
+  useEffect(() => {
+    if (isOpen) {
+      setInputMethod('barcode');
+      setManualBarcodes(['']);
+      setCartHistory([{ cart: [], unrecognizedBarcode: null }]);
+      setHistoryIndex(0);
+      setIsScanningActive(false);
+      isScanningActiveRef.current = false;
+      setScanToast(null);
+    } else {
+      setIsScanningActive(false);
+      isScanningActiveRef.current = false;
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+        scanTimeoutRef.current = null;
+      }
+      if (toastDismissTimerRef.current) {
+        clearTimeout(toastDismissTimerRef.current);
+        toastDismissTimerRef.current = null;
+      }
+      setScanToast(null);
+    }
+  }, [isOpen]);
+
+  const handleSwitchInputMethod = (method: 'barcode' | 'key') => {
+    setInputMethod(method);
+    if (method === 'key') {
+      setIsScanningActive(false);
+      isScanningActiveRef.current = false;
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+        scanTimeoutRef.current = null;
+      }
+      setScanToast(null);
+      setTimeout(() => inputRefs.current[0]?.focus(), 80);
+    }
   };
 
   const wasOpenRef = useRef<boolean>(false);
@@ -509,21 +514,15 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           cancelAnimationFrame(frameCallbackIdRef.current);
           frameCallbackIdRef.current = null;
         }
-        setDetectedCode(null);
         setCameraError(null);
         setFocusTapPos(null);
-        setIsConfirmingOrder(false);
-        setIsCartExpanded(false);
-        setReticleFlash(null);
         setScanToast(null);
-        setScannedCart([]);
       }
       return;
     }
 
     wasOpenRef.current = true;
     let isMounted = true;
-    isScanningActiveRef.current = true;
 
     async function startScannerPipeline() {
       setCameraError(null);
@@ -598,14 +597,13 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           try {
             const detector = new window.BarcodeDetector({ formats: RETAIL_NATIVE_FORMATS });
             useNativeEngine = true;
-            setIsEngineNative(true);
 
             let lastFrameTime = 0;
             const processNativeFrame = async (timestamp: number) => {
-              if (!isMounted || !isScanningActiveRef.current) return;
+              if (!isMounted) return;
 
-              // Run native scanning at up to 30fps
-              if (timestamp - lastFrameTime >= 33) {
+              // Only perform active detection while isScanningActive is true
+              if (isScanningActiveRef.current && timestamp - lastFrameTime >= 33) {
                 lastFrameTime = timestamp;
                 try {
                   if (videoEl.readyState >= 2) {
@@ -620,11 +618,11 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                     }
                   }
                 } catch {
-                  // Fallback frame handling
+                  // Frame fallback
                 }
               }
 
-              if (isMounted && isScanningActiveRef.current) {
+              if (isMounted) {
                 frameCallbackIdRef.current = requestAnimationFrame(processNativeFrame);
               }
             };
@@ -632,12 +630,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             frameCallbackIdRef.current = requestAnimationFrame(processNativeFrame);
           } catch {
             useNativeEngine = false;
-            setIsEngineNative(false);
           }
         }
 
         if (!useNativeEngine) {
-          setIsEngineNative(false);
           const hints = new Map();
           hints.set(DecodeHintType.POSSIBLE_FORMATS, RETAIL_ZXING_FORMATS);
           hints.set(DecodeHintType.TRY_HARDER, true);
@@ -719,26 +715,17 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
   const toggleFacingMode = () => {
     setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
-    setTorchOn(false);
-    setZoomLevel(1);
   };
 
-  const handleViewfinderTap = async (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleViewfinderTap = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     setFocusTapPos({ x, y });
+    setTimeout(() => setFocusTapPos(null), 900);
 
-    setTimeout(() => {
-      setFocusTapPos(null);
-    }, 1000);
-
-    if (!videoRef.current || !videoRef.current.srcObject) return;
-    const stream = videoRef.current.srcObject as MediaStream;
-    const track = stream.getVideoTracks()[0];
-    if (!track) return;
-
-    await applyTrackConstraint(track, { focusMode: 'continuous' });
+    // Also trigger scan session on tap
+    triggerScanSession();
   };
 
   const handleFileScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -749,14 +736,15 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       if (typeof window !== 'undefined' && 'BarcodeDetector' in window && window.BarcodeDetector) {
         try {
           const detector = new window.BarcodeDetector({ formats: RETAIL_NATIVE_FORMATS });
-          const imageBitmap = await createImageBitmap(file);
-          const results = await detector.detect(imageBitmap);
-          if (results && results.length > 0 && results[0].rawValue) {
-            handleScanResult(results[0].rawValue);
+          const imgBitmap = await createImageBitmap(file);
+          const barcodes = await detector.detect(imgBitmap);
+          if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+            isScanningActiveRef.current = true;
+            handleScanResult(barcodes[0].rawValue);
             return;
           }
         } catch {
-          // Fallback to ZXing
+          // fallback
         }
       }
 
@@ -771,6 +759,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           const multiReader = new BrowserMultiFormatReader(hints);
           const result = await multiReader.decodeFromImageUrl(imgUrl);
           if (result && result.getText()) {
+            isScanningActiveRef.current = true;
             handleScanResult(result.getText());
           } else {
             setCameraError('No clear barcode detected in photo. Please ensure barcode is sharp.');
@@ -785,294 +774,476 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   };
 
-  const handleSampleBarcode = (sampleCode: string) => {
-    handleScanResult(sampleCode);
+  const handleBarcodeChange = (index: number, value: string) => {
+    setManualBarcodes((prev) => {
+      const copy = [...prev];
+      copy[index] = value;
+      return copy;
+    });
   };
+
+  const handleAddLine = () => {
+    setManualBarcodes((prev) => {
+      const next = [...prev, ''];
+      setTimeout(() => {
+        const nextIdx = next.length - 1;
+        inputRefs.current[nextIdx]?.focus();
+      }, 50);
+      return next;
+    });
+  };
+
+  const handleRemoveLine = (index: number) => {
+    setManualBarcodes((prev) => {
+      if (prev.length <= 1) return [''];
+      return prev.filter((_, idx) => idx !== index);
+    });
+  };
+
+  const handleClearLine = (index: number) => {
+    setManualBarcodes((prev) => {
+      const copy = [...prev];
+      copy[index] = '';
+      return copy;
+    });
+    inputRefs.current[index]?.focus();
+  };
+
+  const handleKeySubmit = (singleCode?: string) => {
+    const codes = (singleCode !== undefined
+      ? [singleCode.trim()]
+      : manualBarcodes.map((b) => b.trim())
+    ).filter((b) => b.length > 0);
+
+    if (codes.length === 0) return;
+
+    playBeep();
+
+    const {
+      products: currentProducts,
+      onItemScanned: currentOnItemScanned,
+    } = propsRef.current;
+
+    let updatedCart = [...scannedCart];
+    let lastUnrecognized: string | null = unrecognizedBarcode;
+    const matchedNames: string[] = [];
+    const unrecognizedCodes: string[] = [];
+
+    for (const code of codes) {
+      const matched = currentProducts.find(
+        (p) =>
+          (p.sku && p.sku.trim().toLowerCase() === code.toLowerCase()) ||
+          p.id.toLowerCase() === code.toLowerCase() ||
+          p.name.trim().toLowerCase() === code.toLowerCase()
+      );
+
+      if (matched) {
+        if (currentOnItemScanned) {
+          currentOnItemScanned(matched);
+        }
+        const existingIdx = updatedCart.findIndex((item) => item.productId === matched.id);
+        if (existingIdx >= 0) {
+          updatedCart[existingIdx] = {
+            ...updatedCart[existingIdx],
+            quantity: updatedCart[existingIdx].quantity + 1,
+          };
+        } else {
+          updatedCart = [
+            ...updatedCart,
+            {
+              productId: matched.id,
+              name: matched.name,
+              unitPrice: matched.price,
+              quantity: 1,
+              category: matched.category,
+            },
+          ];
+        }
+        matchedNames.push(matched.name);
+      } else {
+        lastUnrecognized = code;
+        unrecognizedCodes.push(code);
+      }
+    }
+
+    const actionTitle = matchedNames.length > 0 ? matchedNames.join(', ') : 'Manual Entry';
+    pushHistory(updatedCart, lastUnrecognized, actionTitle);
+
+    if (toastDismissTimerRef.current) {
+      clearTimeout(toastDismissTimerRef.current);
+    }
+
+    if (unrecognizedCodes.length > 0 && matchedNames.length === 0) {
+      setScanToast({
+        id: Date.now(),
+        type: 'warning',
+        title: unrecognizedCodes.length === 1 ? 'Unrecognized Barcode' : 'Unrecognized Barcodes',
+        subtitle: unrecognizedCodes.join(', '),
+      });
+    } else if (matchedNames.length > 0) {
+      setScanToast({
+        id: Date.now(),
+        type: 'success',
+        title: matchedNames.length === 1 ? matchedNames[0] : `${matchedNames.length} Items Added`,
+        subtitle: unrecognizedCodes.length > 0 ? `${unrecognizedCodes.length} unrecognized` : 'Added to cart',
+      });
+    }
+
+    toastDismissTimerRef.current = window.setTimeout(() => {
+      setScanToast(null);
+    }, 3000);
+
+    setManualBarcodes(['']);
+    setTimeout(() => inputRefs.current[0]?.focus(), 60);
+  };
+
+  const validBarcodesCount = manualBarcodes.filter((b) => b.trim().length > 0).length;
 
   return (
     <AnimatePresence>
       {isOpen && (
-        <div id="barcode-scanner-modal-backdrop" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5">
-          {/* Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => {
-              if (scannedCart.length === 0 || confirm('Close scanner and discard scanned products?')) {
-                onClose();
-              }
-            }}
-            className="absolute inset-0 bg-[#161816]/80 backdrop-blur-xs"
+        <motion.div
+          id="barcode-scanner-modal-backdrop"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="fixed inset-0 z-50 w-full h-full flex flex-col select-none bg-black overflow-hidden"
+        >
+          {/* Always-mounted Background Camera Video so stream is never interrupted */}
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            autoPlay
+            className="absolute inset-0 w-full h-full object-cover pointer-events-none"
           />
 
-          {/* Dialog Container */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 12 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="relative w-full max-w-[420px] bg-[#161816] rounded-3xl overflow-hidden shadow-[0_24px_70px_rgba(0,0,0,0.55)] z-10 flex flex-col select-none border border-white/10"
-          >
-            {/* Top Scanning Mode Switcher Bar */}
-            <div className="flex items-center justify-between px-3.5 py-3 bg-[#1F2220] border-b border-white/10 z-30">
-              {allowMultiScan ? (
-                <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/10">
-                  <button
-                    type="button"
-                    onClick={() => handleToggleMode('multi')}
-                    className={`h-7 px-2.5 rounded-lg text-[12px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                      scanMode === 'multi'
-                        ? 'bg-[#16A34A] text-white shadow-xs'
-                        : 'text-white/60 hover:text-white'
-                    }`}
-                  >
-                    <Layers size={13} />
-                    <span>Multi-Product</span>
-                    {scannedCart.length > 0 && (
-                      <span className="ml-0.5 px-1.5 py-0.2 bg-white text-[#16A34A] rounded-full text-[10px] font-bold">
-                        {totalUnits}
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleToggleMode('single')}
-                    className={`h-7 px-2.5 rounded-lg text-[12px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                      scanMode === 'single'
-                        ? 'bg-white text-[#252825] shadow-xs'
-                        : 'text-white/60 hover:text-white'
-                    }`}
-                  >
-                    <ScanLine size={13} />
-                    <span>Single Scan</span>
-                  </button>
-                </div>
-              ) : (
-                <span className="text-[14px] font-semibold text-white/90 pl-1">{title}</span>
-              )}
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (scannedCart.length === 0 || confirm('Close scanner and discard scanned products?')) {
-                    onClose();
-                  }
-                }}
-                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
-                aria-label="Close"
+          {/* In-Modal Toaster using Navy Blue Format, strictly hugging text width */}
+          <AnimatePresence>
+            {scanToast && (
+              <motion.div
+                key={scanToast.id}
+                initial={{ opacity: 0, y: -14, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+                className="absolute top-4 sm:top-5 left-1/2 -translate-x-1/2 z-50 pointer-events-none w-fit max-w-[calc(100vw-32px)] px-3.5 py-2 rounded-[14px] bg-[#0F172A] text-white shadow-[0_8px_24px_-4px_rgba(15,23,42,0.45)] border border-slate-700/50 flex items-center gap-2 select-none whitespace-nowrap"
               >
-                <X size={16} />
-              </button>
-            </div>
+                <div
+                  className={`w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    scanToast.type === 'success'
+                      ? 'text-[#4ADE80]'
+                      : scanToast.type === 'warning'
+                      ? 'text-[#FBBF24]'
+                      : 'text-[#38BDF8]'
+                  }`}
+                >
+                  {scanToast.type === 'success' ? (
+                    <Check size={14} strokeWidth={2.8} />
+                  ) : scanToast.type === 'warning' ? (
+                    <AlertCircle size={14} strokeWidth={2.5} />
+                  ) : (
+                    <ScanLine size={14} strokeWidth={2.5} />
+                  )}
+                </div>
+                <div className="w-fit flex flex-col leading-tight">
+                  <span className="text-[13px] font-semibold text-white whitespace-nowrap">
+                    {scanToast.title}
+                  </span>
+                  {scanToast.subtitle && (
+                    <span className="text-[11px] font-medium text-[#CBD5E1] whitespace-nowrap mt-0.5">
+                      {scanToast.subtitle}
+                    </span>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-            {/* ORDER CONFIRMATION VIEW */}
-            {isConfirmingOrder ? (
-              <div className="bg-white text-[#252825] p-5 max-h-[82vh] overflow-y-auto flex flex-col">
-                {/* Header with return button */}
-                <div className="flex items-center justify-between pb-3 border-b border-[#DEE3DE]">
+          {/* Smooth transition between Key and Barcode camera views */}
+          <AnimatePresence mode="wait" initial={false}>
+            {inputMethod === 'key' ? (
+              /* MANUAL BARCODE "KEY" VIEW (Full Page) */
+              <motion.div
+                key="manual-key"
+                initial={{ opacity: 0, x: 24 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -24 }}
+                transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+                className="relative z-10 w-full h-full flex-1 flex flex-col justify-between p-5 bg-white text-[#252825] overflow-y-auto select-none pt-[max(env(safe-area-inset-top),20px)] pb-[max(env(safe-area-inset-bottom),20px)]"
+              >
+                {/* Top header with close button & Checkout button */}
+                <div className="flex items-center justify-between">
                   <button
                     type="button"
-                    onClick={() => setIsConfirmingOrder(false)}
-                    className="flex items-center gap-1.5 text-[13px] font-semibold text-[#4F8065] hover:text-[#18392B] cursor-pointer"
+                    onClick={onClose}
+                    className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 text-[#161816] flex items-center justify-center transition-colors cursor-pointer"
+                    aria-label="Close"
                   >
-                    <ArrowLeft size={16} />
-                    <span>Scan More Products</span>
+                    <X size={18} strokeWidth={2.5} />
                   </button>
-                  <span className="text-[12px] font-semibold px-2 py-0.5 rounded-md bg-[#F2F4F2] text-[#4F8065]">
-                    {totalUnits} items
-                  </span>
-                </div>
 
-                <div className="py-3">
-                  <h3 className="text-[19px] font-bold text-[#252825]">Confirm Order</h3>
-                  <p className="text-[12.5px] text-[#717671]">Review scanned items before completing this sale.</p>
-                </div>
-
-                {/* Scanned Items Itemized Breakdown */}
-                <div className="divide-y divide-[#F2F4F2] max-h-52 overflow-y-auto pr-1">
-                  {scannedCart.map(({ product, quantity }) => (
-                    <div
-                      key={product.id}
-                      className="py-2.5 px-1.5 rounded-lg flex items-center justify-between gap-3 hover:bg-gray-50/50 transition-colors"
+                  {/* Checkout Button in Key View Header */}
+                  {(totalQuantity > 0 || unrecognizedBarcode) && (
+                    <button
+                      type="button"
+                      onClick={handleCheckout}
+                      className="h-10 px-4 rounded-full bg-[#4F8065] hover:bg-[#3D684F] text-white flex items-center gap-2 shadow-[0_3px_12px_rgba(79,128,101,0.35)] font-bold text-[13px] active:scale-95 transition-all cursor-pointer"
                     >
-                      <div className="min-w-0 flex-1">
-                        <h4 className="text-[13.5px] font-semibold text-[#252825] truncate">{product.name}</h4>
-                        <div className="text-[11.5px] text-[#717671]">
-                          <span>₱{product.price.toLocaleString('en-US', { minimumFractionDigits: 2 })} each</span>
-                        </div>
-                      </div>
-
-                      {/* Quantity Stepper */}
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateCartQty(product.id, -1)}
-                          className="w-7 h-7 rounded-lg bg-[#F2F4F2] hover:bg-[#DEE3DE] text-[#252825] flex items-center justify-center cursor-pointer transition-colors"
-                          aria-label="Decrease quantity"
-                        >
-                          <Minus size={13} />
-                        </button>
-                        <span className="w-6 text-center text-[13.5px] font-bold text-[#252825]">{quantity}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateCartQty(product.id, 1)}
-                          disabled={quantity >= product.stock}
-                          className="w-7 h-7 rounded-lg bg-[#F2F4F2] hover:bg-[#DEE3DE] text-[#252825] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer transition-colors"
-                          aria-label="Increase quantity"
-                        >
-                          <Plus size={13} />
-                        </button>
-                      </div>
-
-                      <div className="w-18 text-right font-bold text-[13.5px] text-[#252825]">
-                        ₱{(product.price * quantity).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Subtotal & Total Summary Before Cash Received */}
-                <div className="mt-4 pt-4 border-t border-[#DEE3DE] space-y-2.5">
-                  <div className="flex justify-between text-[13.5px] text-[#717671]">
-                    <span>Subtotal</span>
-                    <span className="font-semibold text-[#252825] tabular-nums">
-                      ₱{totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-baseline pt-1.5 border-t border-[#DEE3DE]">
-                    <span className="text-[15px] font-bold text-[#252825]">Total Due</span>
-                    <span className="text-[22px] font-black text-[#252825] tabular-nums">
-                      ₱{totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Cash Received Stacked Section */}
-                <div className="mt-4 pt-3 space-y-2">
-                  <label htmlFor="tender-amount-input" className="block text-[13px] font-bold text-[#252825]">
-                    Cash received
-                  </label>
-                  <div className="flex items-center gap-1.5 pb-2 border-b border-[#DEE3DE] focus-within:border-[#252825] transition-colors">
-                    <span className="text-[15px] font-bold text-[#252825]">₱</span>
-                    <input
-                      id="tender-amount-input"
-                      type="number"
-                      min="0"
-                      step="any"
-                      placeholder={totalAmount.toFixed(2)}
-                      value={cashTendered}
-                      onChange={(e) => setCashTendered(e.target.value)}
-                      className="w-full text-[15px] font-bold bg-transparent focus:outline-none text-[#252825] placeholder:text-[#717671]/40"
-                    />
-                  </div>
-
-                  {/* Real-time Change Due Display - Pure Black Text */}
-                  {tenderedNum > 0 && (
-                    <div className="pt-1.5 flex justify-between items-center text-[13.5px]">
-                      <span className={tenderedNum < totalAmount && cashTendered !== '' ? 'font-medium text-red-600' : 'font-semibold text-[#252825]'}>
-                        {tenderedNum < totalAmount && cashTendered !== '' ? 'Short by:' : 'Change due:'}
-                      </span>
-                      <span
-                        className={`tabular-nums font-bold text-[15px] ${
-                          tenderedNum < totalAmount && cashTendered !== '' ? 'text-red-600' : 'text-[#252825]'
-                        }`}
-                      >
-                        {tenderedNum < totalAmount && cashTendered !== ''
-                          ? `₱${(totalAmount - tenderedNum).toFixed(2)}`
-                          : `₱${changeDue.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
-                      </span>
-                    </div>
+                      <ShoppingCart size={15} strokeWidth={2.4} />
+                      <span>Checkout ({totalQuantity})</span>
+                    </button>
                   )}
                 </div>
 
-                {/* Confirm Sale Button without Price inside */}
-                <div className="mt-5 pt-2 flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={handleCompleteOrder}
-                    disabled={!isTenderValid || scannedCart.length === 0}
-                    className="w-full py-3 bg-[#4F8065] active:bg-[#3D684F] hover:bg-[#437258] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-[14.5px] font-bold flex items-center justify-center gap-2 shadow-sm transition-colors cursor-pointer"
-                  >
-                    <Check size={18} strokeWidth={2.5} />
-                    <span>Confirm & Complete Sale</span>
-                  </button>
-                </div>
-              </div>
-            ) : (
-              /* LIVE CAMERA VIEWPORT */
-              <div
-                className="relative aspect-[3/4] w-full bg-black overflow-hidden flex items-center justify-center cursor-pointer"
-                onClick={handleViewfinderTap}
-              >
-                <video
-                  ref={videoRef}
-                  playsInline
-                  muted
-                  autoPlay
-                  className="w-full h-full object-cover"
-                />
+                {/* Center Content */}
+                <div className="my-auto flex flex-col items-center max-w-sm mx-auto w-full px-2">
+                  <h2 className="text-[20px] font-bold text-[#252825] text-center mb-1">
+                    Type product barcode
+                  </h2>
+                  <p className="text-[13px] text-[#717671] text-center mb-5">
+                    Enter the barcode digits or add multiple lines
+                  </p>
 
-                {/* Floating Camera Controls Top Bar */}
-                <div
-                  className="absolute top-0 inset-x-0 p-3.5 flex items-center justify-between bg-gradient-to-b from-black/70 to-transparent z-20"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center gap-1.5">
-                    {scanMode === 'multi' ? (
-                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#16A34A] text-white flex items-center gap-1 shadow-sm">
-                        <Layers size={11} />
-                        <span>Multi-scan</span>
-                      </span>
-                    ) : (
-                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-white/20 text-white flex items-center gap-1">
-                        <ScanLine size={11} />
-                        <span>Single scan</span>
-                      </span>
-                    )}
+                  {/* Barcode graphic for aesthetics */}
+                  <div className="w-full flex items-center justify-center py-2.5 px-4 mb-3">
+                    <svg
+                      viewBox="0 0 190 56"
+                      className="w-44 h-11 text-[#161816] fill-current opacity-85"
+                      aria-hidden="true"
+                    >
+                      <rect x="0" y="0" width="3" height="56" />
+                      <rect x="6" y="0" width="1.8" height="56" />
+                      <rect x="11" y="0" width="5.5" height="56" />
+                      <rect x="20" y="0" width="2.8" height="56" />
+                      <rect x="26" y="0" width="6.5" height="56" />
+                      <rect x="36" y="0" width="1.8" height="56" />
+                      <rect x="41" y="0" width="4.5" height="56" />
+                      <rect x="49" y="0" width="7" height="56" />
+                      <rect x="60" y="0" width="2.8" height="56" />
+                      <rect x="66" y="0" width="5.5" height="56" />
+                      <rect x="75" y="0" width="1.8" height="56" />
+                      <rect x="80" y="0" width="6.5" height="56" />
+                      <rect x="90" y="0" width="3.8" height="56" />
+                      <rect x="97" y="0" width="5.5" height="56" />
+                      <rect x="106" y="0" width="1.8" height="56" />
+                      <rect x="111" y="0" width="6.5" height="56" />
+                      <rect x="121" y="0" width="2.8" height="56" />
+                      <rect x="127" y="0" width="4.5" height="56" />
+                      <rect x="135" y="0" width="6.5" height="56" />
+                      <rect x="145" y="0" width="1.8" height="56" />
+                      <rect x="150" y="0" width="4.5" height="56" />
+                      <rect x="158" y="0" width="2.8" height="56" />
+                      <rect x="164" y="0" width="5.5" height="56" />
+                      <rect x="173" y="0" width="2.8" height="56" />
+                      <rect x="179" y="0" width="4.5" height="56" />
+                      <rect x="187" y="0" width="3" height="56" />
+                    </svg>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    {zoomAvailable && (
+                  {/* Multi-line minimal underline inputs */}
+                  <div className="w-full flex flex-col gap-3.5 mb-2 max-h-[260px] overflow-y-auto px-1 py-1">
+                    {manualBarcodes.map((code, idx) => (
+                      <div key={idx} className="relative w-full group">
+                        <input
+                          ref={(el) => {
+                            inputRefs.current[idx] = el;
+                          }}
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          autoFocus={idx === 0}
+                          placeholder={
+                            manualBarcodes.length > 1
+                              ? `Barcode #${idx + 1}...`
+                              : 'Click here to type barcode...'
+                          }
+                          value={code}
+                          onChange={(e) => handleBarcodeChange(idx, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              if (idx === manualBarcodes.length - 1 && code.trim().length > 0) {
+                                handleAddLine();
+                              } else {
+                                handleKeySubmit();
+                              }
+                            }
+                          }}
+                          className="w-full h-11 bg-transparent text-center font-mono text-[20px] font-bold text-[#161816] placeholder:text-[#9CA3AF] placeholder:text-[14px] placeholder:font-normal outline-none transition-all pb-1.5 border-b-2 border-[#DEE3DE] focus:border-[#4F8065] px-8"
+                        />
+
+                        {/* Remove Line (if multiple lines exist) */}
+                        {manualBarcodes.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveLine(idx)}
+                            className="absolute left-1 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center cursor-pointer transition-colors"
+                            aria-label={`Remove barcode line ${idx + 1}`}
+                            title="Remove line"
+                          >
+                            <Trash2 size={14} strokeWidth={2.2} />
+                          </button>
+                        )}
+
+                        {/* Clear text button */}
+                        {code.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleClearLine(idx)}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center cursor-pointer transition-colors"
+                            aria-label={`Clear line ${idx + 1}`}
+                          >
+                            <X size={13} strokeWidth={2.5} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Option to add another barcode line (Black styling) */}
+                  <button
+                    type="button"
+                    onClick={handleAddLine}
+                    className="flex items-center gap-1.5 text-[13px] font-semibold text-[#161816] hover:text-black active:scale-95 transition-all py-1.5 px-3 rounded-lg hover:bg-black/5 cursor-pointer mb-3"
+                  >
+                    <Plus size={15} strokeWidth={2.5} />
+                    <span>Add another barcode line</span>
+                  </button>
+
+                  {/* Submit Button in project Green variant */}
+                  <button
+                    type="button"
+                    onClick={() => handleKeySubmit()}
+                    disabled={validBarcodesCount === 0}
+                    className="w-full h-12 bg-[#4F8065] hover:bg-[#3D684F] active:scale-[0.99] disabled:opacity-35 disabled:cursor-not-allowed text-white rounded-full font-bold text-[15px] flex items-center justify-center shadow-[0_4px_14px_rgba(79,128,101,0.35)] transition-all cursor-pointer"
+                  >
+                    <span>
+                      {validBarcodesCount > 1
+                        ? `Add ${validBarcodesCount} Barcodes`
+                        : 'Add Barcode'}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Bottom Bar: Summary & Checkout if items scanned */}
+                <div className="flex flex-col items-center gap-3 pt-2">
+                  {totalQuantity > 0 && (
+                    <div className="w-full max-w-sm flex items-center justify-between px-4 py-2.5 bg-[#F2F4F2] rounded-2xl border border-[#DEE3DE]">
+                      <div className="flex flex-col leading-tight">
+                        <span className="text-[12px] text-[#717671] font-medium">
+                          {totalQuantity} {totalQuantity === 1 ? 'item' : 'items'} in cart
+                        </span>
+                        <span className="text-[16px] font-bold text-[#161816]">
+                          ₱{totalAmount.toFixed(2)}
+                        </span>
+                      </div>
                       <button
                         type="button"
-                        onClick={toggleZoom}
-                        className={`h-7 px-2 rounded-full text-white flex items-center justify-center gap-1 text-[11px] font-bold backdrop-blur-md transition-colors cursor-pointer ${
-                          zoomLevel > 1 ? 'bg-[#16A34A]' : 'bg-black/50 hover:bg-black/70'
-                        }`}
-                        aria-label="Toggle zoom"
+                        onClick={handleCheckout}
+                        className="px-4 py-2 rounded-xl bg-[#4F8065] hover:bg-[#3D684F] text-white font-bold text-[13px] flex items-center gap-1 shadow-md active:scale-95 transition-all cursor-pointer"
                       >
-                        {zoomLevel > 1 ? <ZoomOut size={12} /> : <ZoomIn size={12} />}
-                        <span>{zoomLevel}x</span>
+                        <span>Checkout</span>
+                        <ChevronRight size={15} strokeWidth={2.5} />
                       </button>
-                    )}
+                    </div>
+                  )}
 
+                  {/* Switcher ("Barcode" & "Key") */}
+                  <div className="flex items-center justify-center gap-3 pb-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchInputMethod('barcode')}
+                      className="w-28 h-14 rounded-2xl bg-[#F2F4F2] hover:bg-[#E5E9E5] text-[#4B524D] border border-[#DEE3DE]/60 flex flex-col items-center justify-center gap-1 font-semibold text-[13px] transition-all cursor-pointer select-none"
+                    >
+                      <ScanLine size={18} strokeWidth={2.3} />
+                      <span>Barcode</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchInputMethod('key')}
+                      className="w-28 h-14 rounded-2xl bg-[#4F8065] text-white shadow-[0_4px_16px_rgba(79,128,101,0.38)] flex flex-col items-center justify-center gap-1 font-semibold text-[13px] transition-all cursor-pointer select-none"
+                    >
+                      <Keyboard size={18} strokeWidth={2.2} />
+                      <span>Key</span>
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            ) : (
+              /* LIVE CAMERA BARCODE SCANNER VIEW (Full Page) */
+              <motion.div
+                key="camera-barcode"
+                initial={{ opacity: 0, x: -24 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 24 }}
+                transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
+                className="relative z-10 flex-1 w-full h-full bg-black/20 overflow-hidden flex flex-col justify-between cursor-pointer pt-[max(env(safe-area-inset-top),16px)] pb-[max(env(safe-area-inset-bottom),16px)]"
+                onClick={handleViewfinderTap}
+              >
+                {/* Floating Top Header (Close on left, Controls on right) */}
+                <div
+                  className="relative p-3.5 flex items-center justify-between z-30"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center gap-2">
+                    {/* Circular Translucent Close Button matching upload button format */}
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="w-9 h-9 rounded-full bg-black/45 hover:bg-black/65 text-white flex items-center justify-center backdrop-blur-md transition-all cursor-pointer"
+                      aria-label="Close scanner"
+                    >
+                      <X size={15} strokeWidth={2.4} />
+                    </button>
+                  </div>
+
+                  {/* Top Right Controls */}
+                  <div className="flex items-center gap-2">
                     {torchAvailable && (
                       <button
                         type="button"
                         onClick={toggleTorch}
-                        className={`w-7 h-7 rounded-full text-white flex items-center justify-center backdrop-blur-md transition-colors cursor-pointer ${
-                          torchOn ? 'bg-[#16A34A]' : 'bg-black/50 hover:bg-black/70'
+                        className={`w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md transition-all cursor-pointer ${
+                          torchOn ? 'bg-[#22C55E] text-white shadow-md' : 'bg-black/45 text-white hover:bg-black/65'
                         }`}
-                        aria-label="Toggle flash"
+                        aria-label="Toggle Flash"
                       >
-                        {torchOn ? <Zap size={13} /> : <ZapOff size={13} />}
+                        {torchOn ? <Zap size={15} /> : <ZapOff size={15} />}
                       </button>
                     )}
-
+                    {zoomAvailable && (
+                      <button
+                        type="button"
+                        onClick={toggleZoom}
+                        className="w-9 h-9 rounded-full bg-black/45 hover:bg-black/65 text-white flex items-center justify-center backdrop-blur-md transition-all cursor-pointer"
+                        aria-label="Toggle Zoom"
+                      >
+                        {zoomLevel === 1 ? <ZoomIn size={15} /> : <ZoomOut size={15} />}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={toggleFacingMode}
-                      className="w-7 h-7 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center backdrop-blur-md transition-colors cursor-pointer"
-                      aria-label="Switch camera"
+                      className="w-9 h-9 rounded-full bg-black/45 hover:bg-black/65 text-white flex items-center justify-center backdrop-blur-md transition-all cursor-pointer"
+                      aria-label="Flip Camera"
                     >
-                      <FlipHorizontal size={14} />
+                      <FlipHorizontal size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-9 h-9 rounded-full bg-black/45 hover:bg-black/65 text-white flex items-center justify-center backdrop-blur-md transition-all cursor-pointer"
+                      aria-label="Upload Barcode Photo"
+                    >
+                      <Upload size={15} />
                     </button>
                   </div>
                 </div>
 
-                {/* Tap to focus reticle indicator */}
+                {/* Tap-to-Focus Indicator */}
                 {focusTapPos && (
                   <div
                     className="absolute w-14 h-14 -ml-7 -mt-7 rounded-full border border-white/80 animate-ping pointer-events-none z-20"
@@ -1080,321 +1251,168 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   />
                 )}
 
-                {/* Central Target Reticle & Premium Scan Line */}
-                {hasCamera && !cameraError && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-6 z-10">
+                {/* Center Viewfinder Reticle with Clean Crisp White Corners */}
+                <div className="relative z-20 flex items-center justify-center my-auto pointer-events-none">
+                  <div className="relative w-64 h-80 sm:w-72 sm:h-92 rounded-3xl flex items-center justify-center transition-all duration-200 overflow-hidden">
+                    <div className="absolute top-0 left-0 w-11 h-11 border-t-[3.5px] border-l-[3.5px] border-white/95 rounded-tl-2xl drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] z-20" />
+                    <div className="absolute top-0 right-0 w-11 h-11 border-t-[3.5px] border-r-[3.5px] border-white/95 rounded-tr-2xl drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] z-20" />
+                    <div className="absolute bottom-0 left-0 w-11 h-11 border-b-[3.5px] border-l-[3.5px] border-white/95 rounded-bl-2xl drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] z-20" />
+                    <div className="absolute bottom-0 right-0 w-11 h-11 border-b-[3.5px] border-r-[3.5px] border-white/95 rounded-br-2xl drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] z-20" />
+
+                    {/* Hardware-Accelerated Laser Scanner Line with Glowing Dots */}
                     <div
-                      className={`relative w-64 h-40 rounded-2xl flex items-center justify-center transition-all duration-200 overflow-hidden ${
-                        reticleFlash === 'green' || detectedCode
-                          ? 'border border-[#22C55E]/80 shadow-[0_0_20px_rgba(34,197,94,0.3)]'
-                          : reticleFlash === 'amber'
-                          ? 'border border-amber-400/80 shadow-[0_0_20px_rgba(251,191,36,0.3)]'
-                          : 'border border-white/30'
+                      className={`absolute inset-x-2 -translate-y-1/2 flex items-center justify-center pointer-events-none transition-all duration-300 z-10 ${
+                        isScanningActive ? 'animate-laser-sweep-fast' : 'animate-laser-sweep'
                       }`}
                     >
-                      {/* Refined Corner Accent Brackets */}
+                      {/* Ambient Red Laser Aura */}
                       <div
-                        className={`absolute top-0 left-0 w-5 h-5 border-t-[2.5px] border-l-[2.5px] rounded-tl-xl transition-colors duration-200 ${
-                          reticleFlash === 'green' || detectedCode
-                            ? 'border-[#22C55E]'
-                            : reticleFlash === 'amber'
-                            ? 'border-amber-400'
-                            : 'border-white/90'
-                        }`}
-                      />
-                      <div
-                        className={`absolute top-0 right-0 w-5 h-5 border-t-[2.5px] border-r-[2.5px] rounded-tr-xl transition-colors duration-200 ${
-                          reticleFlash === 'green' || detectedCode
-                            ? 'border-[#22C55E]'
-                            : reticleFlash === 'amber'
-                            ? 'border-amber-400'
-                            : 'border-white/90'
-                        }`}
-                      />
-                      <div
-                        className={`absolute bottom-0 left-0 w-5 h-5 border-b-[2.5px] border-l-[2.5px] rounded-bl-xl transition-colors duration-200 ${
-                          reticleFlash === 'green' || detectedCode
-                            ? 'border-[#22C55E]'
-                            : reticleFlash === 'amber'
-                            ? 'border-amber-400'
-                            : 'border-white/90'
-                        }`}
-                      />
-                      <div
-                        className={`absolute bottom-0 right-0 w-5 h-5 border-b-[2.5px] border-r-[2.5px] rounded-br-xl transition-colors duration-200 ${
-                          reticleFlash === 'green' || detectedCode
-                            ? 'border-[#22C55E]'
-                            : reticleFlash === 'amber'
-                            ? 'border-amber-400'
-                            : 'border-white/90'
+                        className={`absolute inset-x-0 h-10 -translate-y-1/2 bg-gradient-to-b from-red-500/25 via-red-500/5 to-transparent blur-[3px] pointer-events-none transition-opacity duration-300 ${
+                          isScanningActive ? 'opacity-100' : 'opacity-65'
                         }`}
                       />
 
-                      {/* Precision Center Target Markings */}
-                      <div className="absolute inset-0 flex items-center justify-between px-2 opacity-25">
-                        <div className="w-1.5 h-[1px] bg-white" />
-                        <div className="w-1.5 h-[1px] bg-white" />
+                      {/* Main Red Laser Beam */}
+                      <div
+                        className={`w-full h-[2.5px] bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_12px_#ef4444,0_0_24px_rgba(239,68,68,0.7)] ${
+                          isScanningActive ? 'opacity-100' : 'opacity-85'
+                        }`}
+                      />
+
+                      {/* White Core Filament */}
+                      <div className="absolute inset-x-8 h-[1px] bg-gradient-to-r from-transparent via-white to-transparent opacity-95" />
+
+                      {/* Glowing Dots along the Laser Movement */}
+                      {/* Center Glowing Pulse Node */}
+                      <div className="absolute left-1/2 -translate-x-1/2 w-3.5 h-3.5 flex items-center justify-center">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full w-2.5 h-2.5 bg-white border border-red-500 shadow-[0_0_10px_#ef4444,0_0_20px_#ef4444]" />
                       </div>
 
-                      {/* Premium Luminous Laser Beam */}
-                      {!detectedCode && (
-                        <motion.div
-                          animate={{ y: [-55, 55, -55] }}
-                          transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
-                          className="absolute inset-x-0 flex flex-col items-center pointer-events-none"
-                        >
-                          {/* Soft Vertical Glow Aura */}
-                          <div
-                            className={`w-full h-8 -my-4 ${
-                              reticleFlash === 'amber'
-                                ? 'bg-gradient-to-b from-transparent via-amber-400/20 to-transparent'
-                                : 'bg-gradient-to-b from-transparent via-[#22C55E]/20 to-transparent'
-                            }`}
-                          />
-                          {/* Fine Laser Line */}
-                          <div
-                            className={`w-full h-[1.5px] ${
-                              reticleFlash === 'amber'
-                                ? 'bg-gradient-to-r from-transparent via-amber-300 to-transparent shadow-[0_0_10px_rgba(251,191,36,0.9)]'
-                                : 'bg-gradient-to-r from-transparent via-[#4ADE80] to-transparent shadow-[0_0_12px_rgba(74,222,128,0.95)]'
-                            }`}
-                          />
-                          {/* Center Specular Glint */}
-                          <div className="w-10 h-[2px] rounded-full bg-white/90 blur-[0.5px] mx-auto -mt-[1px] shadow-[0_0_6px_#ffffff]" />
-                        </motion.div>
-                      )}
+                      {/* Inner Left Glowing Dot */}
+                      <div className="absolute left-[30%] -translate-x-1/2 w-2 h-2 rounded-full bg-red-400 animate-dot-pulse shadow-[0_0_8px_#ef4444,0_0_14px_#ef4444]" />
+
+                      {/* Inner Right Glowing Dot */}
+                      <div
+                        className="absolute left-[70%] -translate-x-1/2 w-2 h-2 rounded-full bg-red-400 animate-dot-pulse shadow-[0_0_8px_#ef4444,0_0_14px_#ef4444]"
+                        style={{ animationDelay: '0.4s' }}
+                      />
+
+                      {/* Outer Left Accent Dot */}
+                      <div
+                        className="absolute left-[16%] -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-red-300 animate-dot-pulse shadow-[0_0_6px_#ef4444]"
+                        style={{ animationDelay: '0.7s' }}
+                      />
+
+                      {/* Outer Right Accent Dot */}
+                      <div
+                        className="absolute left-[84%] -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-red-300 animate-dot-pulse shadow-[0_0_6px_#ef4444]"
+                        style={{ animationDelay: '0.2s' }}
+                      />
                     </div>
                   </div>
-                )}
+                </div>
 
-                {/* Instant Scan Toast HUD banner */}
-                <AnimatePresence>
-                  {scanToast && (
-                    <motion.div
-                      key={scanToast.id}
-                      initial={{ opacity: 0, y: -16, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -12, scale: 0.95 }}
-                      className={`absolute top-14 inset-x-4 py-2 px-3.5 rounded-2xl flex items-center justify-between gap-2 shadow-2xl z-30 border backdrop-blur-md ${
-                        scanToast.type === 'success'
-                          ? 'bg-[#142E20]/95 border-[#22C55E] text-white'
-                          : 'bg-[#3A2209]/95 border-amber-400 text-amber-100'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div
-                          className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-                            scanToast.type === 'success' ? 'bg-[#22C55E] text-[#142E20]' : 'bg-amber-400 text-[#3A2209]'
-                          }`}
-                        >
-                          {scanToast.type === 'success' ? <Check size={13} strokeWidth={3} /> : <AlertCircle size={13} />}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-[12.5px] font-bold truncate leading-tight">{scanToast.title}</p>
-                          {scanToast.subtitle && (
-                            <p className="text-[11px] opacity-80 truncate leading-tight">{scanToast.subtitle}</p>
-                          )}
-                        </div>
+                {/* Bottom Floating Bar */}
+                <div
+                  className="relative z-30 flex flex-col items-center gap-3 p-4 pt-0"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Floating Checkout Summary Bar if items have been scanned */}
+                  {totalQuantity > 0 && (
+                    <div className="w-full max-w-xs flex items-center justify-between px-4 py-2.5 bg-[#161816]/90 backdrop-blur-md rounded-2xl border border-white/15 shadow-2xl text-white">
+                      <div className="flex flex-col text-left leading-tight">
+                        <span className="text-[11px] text-gray-300 font-medium">
+                          {totalQuantity} {totalQuantity === 1 ? 'item' : 'items'} in cart
+                        </span>
+                        <span className="text-[15px] font-bold text-white">
+                          ₱{totalAmount.toFixed(2)}
+                        </span>
                       </div>
-                      <span className="text-[10px] font-semibold opacity-70 flex-shrink-0">
-                        {scanToast.type === 'success' ? 'Scanned' : 'Notice'}
-                      </span>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {/* Single-Scan Immediate Detected Badge */}
-                <AnimatePresence>
-                  {detectedCode && scanMode === 'single' && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.85 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="absolute inset-x-6 bottom-20 bg-[#142E20] text-white py-2.5 px-4 rounded-full flex items-center justify-center gap-2 shadow-2xl border border-[#22C55E] z-30"
-                    >
-                      <div className="w-5 h-5 rounded-full bg-[#22C55E] text-[#142E20] flex items-center justify-center flex-shrink-0 font-bold">
-                        <Check size={14} strokeWidth={3} />
-                      </div>
-                      <span className="text-[13.5px] font-mono font-bold tracking-wide truncate">{detectedCode}</span>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {/* Camera Unavailable Error State */}
-                {cameraError && (
-                  <div
-                    className="absolute inset-0 bg-[#161816]/95 p-6 flex flex-col items-center justify-center text-center text-white z-20 space-y-3"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="w-10 h-10 rounded-full bg-white/10 text-white flex items-center justify-center">
-                      <CameraOff size={20} />
-                    </div>
-                    <h4 className="text-[14px] font-semibold text-white">Camera Unavailable</h4>
-                    <p className="text-[12px] text-white/70 max-w-xs leading-relaxed">{cameraError}</p>
-                    <div className="flex flex-col gap-2 w-full max-w-xs pt-2">
                       <button
                         type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-full py-2.5 bg-white text-[#252825] rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2 hover:bg-gray-100 transition-colors cursor-pointer"
+                        onClick={handleCheckout}
+                        className="px-4 py-2 rounded-xl bg-[#4F8065] hover:bg-[#3D684F] text-white font-bold text-[13px] flex items-center gap-1 shadow-md active:scale-95 transition-all cursor-pointer"
                       >
-                        <Upload size={15} />
-                        <span>Upload Photo of Barcode</span>
+                        <span>Checkout</span>
+                        <ChevronRight size={15} strokeWidth={2.5} />
                       </button>
-                      {products.length > 0 && products[0].sku && (
-                        <button
-                          type="button"
-                          onClick={() => handleSampleBarcode(products[0].sku || '480001664421')}
-                          className="w-full py-2 text-white/80 hover:text-white rounded-xl text-[12px] transition-colors cursor-pointer"
-                        >
-                          Scan Sample Product ({products[0].name})
-                        </button>
-                      )}
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* Docked Multi-Scan Cart Tray / Guide Bar */}
-                {scanMode === 'multi' && allowMultiScan ? (
-                  <div
-                    className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/90 to-transparent p-3.5 z-30 flex flex-col gap-2"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {/* Expandable items drawer if expanded */}
-                    <AnimatePresence>
-                      {isCartExpanded && scannedCart.length > 0 && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          exit={{ opacity: 0, height: 0 }}
-                          className="bg-[#1C1F1D] rounded-2xl p-3 border border-white/15 max-h-44 overflow-y-auto space-y-2 mb-1"
-                        >
-                          <div className="flex items-center justify-between pb-1.5 border-b border-white/10 text-[11.5px] text-white/70">
-                            <span>Scanned Items ({scannedCart.length})</span>
-                            <button
-                              type="button"
-                              onClick={handleClearCart}
-                              className="text-red-400 hover:text-red-300 font-semibold cursor-pointer"
-                            >
-                              Clear All
-                            </button>
-                          </div>
-                          {scannedCart.map(({ product, quantity }) => (
-                            <div key={product.id} className="flex items-center justify-between text-white text-[12px] py-1">
-                              <div className="min-w-0 flex-1 pr-2">
-                                <p className="font-semibold truncate">{product.name}</p>
-                                <p className="text-[10.5px] text-white/60">₱{product.price.toFixed(2)} each</p>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateCartQty(product.id, -1)}
-                                  className="w-5 h-5 rounded-md bg-white/15 hover:bg-white/25 flex items-center justify-center cursor-pointer"
-                                >
-                                  <Minus size={11} />
-                                </button>
-                                <span className="font-bold w-4 text-center">{quantity}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateCartQty(product.id, 1)}
-                                  disabled={quantity >= product.stock}
-                                  className="w-5 h-5 rounded-md bg-white/15 hover:bg-white/25 disabled:opacity-30 flex items-center justify-center cursor-pointer"
-                                >
-                                  <Plus size={11} />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveFromCart(product.id)}
-                                  className="w-5 h-5 text-red-400 hover:text-red-300 flex items-center justify-center ml-1 cursor-pointer"
-                                >
-                                  <Trash2 size={12} />
-                                </button>
-                              </div>
-                            </div>
-                          ))}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* Scanned Cart Bottom Action Bar */}
-                    {scannedCart.length > 0 ? (
-                      <div className="bg-[#1C1F1D]/95 backdrop-blur-md rounded-2xl p-2.5 border border-white/20 flex items-center justify-between gap-2 shadow-2xl">
-                        {/* Cart Summary & Drawer Toggle */}
-                        <button
-                          type="button"
-                          onClick={() => setIsCartExpanded((prev) => !prev)}
-                          className="flex items-center gap-2 text-left text-white px-2 py-1 rounded-xl hover:bg-white/10 transition-colors cursor-pointer"
-                        >
-                          <div className="w-8 h-8 rounded-xl bg-[#16A34A] text-white flex items-center justify-center flex-shrink-0">
-                            <ShoppingBag size={16} />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-1">
-                              <span className="text-[12px] font-bold text-white">
-                                {totalUnits} {totalUnits === 1 ? 'item' : 'items'}
-                              </span>
-                              {isCartExpanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-                            </div>
-                            <span className="text-[13px] font-black text-[#22C55E] block leading-tight">
-                              ₱{totalAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                            </span>
-                          </div>
-                        </button>
-
-                        {/* Primary Proceed to 1 Whole Page Sale Button */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (onProceedToActiveSale) {
-                              onProceedToActiveSale(
-                                scannedCart.map((i) => ({
-                                  productId: i.product.id,
-                                  name: i.product.name,
-                                  unitPrice: i.product.price,
-                                  quantity: i.quantity,
-                                  category: i.product.category,
-                                })),
-                                null
-                              );
-                              onClose();
-                            } else {
-                              setIsConfirmingOrder(true);
-                            }
-                          }}
-                          className="h-10 px-4 bg-[#16A34A] hover:bg-[#15803D] text-white rounded-xl text-[13px] font-bold flex items-center justify-center gap-1.5 shadow-lg transition-all cursor-pointer"
-                        >
-                          <Check size={16} strokeWidth={2.5} />
-                          <span>Proceed to Checkout</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between text-[11.5px] text-white/70 px-1 py-0.5">
-                        <span className="truncate">Scan products continuously • No repeats needed</span>
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="hover:text-white underline underline-offset-2 transition-colors cursor-pointer flex-shrink-0 ml-2"
-                        >
-                          Upload photo
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  /* Single scan mode footer */
-                  <div
-                    className="absolute bottom-0 inset-x-0 p-3.5 flex items-center justify-between text-[11.5px] text-white/75 bg-gradient-to-t from-black/70 to-transparent z-20"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <span>Hold barcode inside frame to scan</span>
+                  {/* Switcher Buttons: "Barcode" and "Key" with Sage Green Active Variant */}
+                  <div className="flex items-center justify-center gap-3">
                     <button
                       type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="hover:text-white underline underline-offset-2 transition-colors cursor-pointer"
+                      onClick={() => handleSwitchInputMethod('barcode')}
+                      className="w-28 h-14 rounded-2xl bg-[#4F8065] text-white shadow-[0_4px_16px_rgba(79,128,101,0.38)] flex flex-col items-center justify-center gap-1 font-semibold text-[13px] transition-all cursor-pointer select-none"
                     >
-                      Upload photo
+                      <ScanLine size={18} strokeWidth={2.3} />
+                      <span>Barcode</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchInputMethod('key')}
+                      className="w-28 h-14 rounded-2xl bg-white/15 hover:bg-white/25 text-white/85 border border-white/15 backdrop-blur-md flex flex-col items-center justify-center gap-1 font-semibold text-[13px] transition-all cursor-pointer select-none"
+                    >
+                      <Keyboard size={18} strokeWidth={2.2} />
+                      <span>Key</span>
                     </button>
                   </div>
-                )}
+
+                  {/* Center Circle with Scanner Icon flanked by Undo and Redo U-Turn Arrow Buttons */}
+                  <div className="flex items-center justify-center gap-4 mt-1">
+                    {/* Undo Button (Left U-turn arrow) */}
+                    <button
+                      type="button"
+                      onClick={handleUndo}
+                      disabled={!canUndo}
+                      aria-label="Undo scan"
+                      title="Undo scan"
+                      className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-150 cursor-pointer ${
+                        canUndo
+                          ? 'bg-white/20 hover:bg-white/30 text-white shadow-md active:scale-95 border border-white/25'
+                          : 'bg-white/5 text-white/25 border border-white/5 cursor-not-allowed pointer-events-none'
+                      }`}
+                    >
+                      <Undo2 size={20} strokeWidth={2.4} />
+                    </button>
+
+                    {/* Center Scan Button with Scanner Icon */}
+                    <div className="p-1.5 rounded-full bg-white shadow-[0_4px_20px_rgba(0,0,0,0.35)] border border-[#DEE3DE]/80">
+                      <button
+                        type="button"
+                        onClick={triggerScanSession}
+                        aria-label="Scan Barcode"
+                        title="Scan Barcode"
+                        className={`w-[58px] h-[58px] sm:w-[62px] sm:h-[62px] rounded-full text-white flex items-center justify-center shadow-[0_5px_16px_rgba(79,128,101,0.38)] active:scale-95 transition-all duration-150 cursor-pointer focus-visible:outline-none ${
+                          isScanningActive
+                            ? 'bg-[#3D684F] ring-4 ring-[#4F8065]/40 shadow-[0_0_20px_rgba(79,128,101,0.6)]'
+                            : 'bg-[#4F8065] hover:bg-[#3D684F] hover:shadow-[0_6px_20px_rgba(79,128,101,0.48)]'
+                        }`}
+                      >
+                        <ScanLine size={27} strokeWidth={2.3} className="sm:w-7 sm:h-7 text-white" />
+                      </button>
+                    </div>
+
+                    {/* Redo Button (Right U-turn arrow) */}
+                    <button
+                      type="button"
+                      onClick={handleRedo}
+                      disabled={!canRedo}
+                      aria-label="Redo scan"
+                      title="Redo scan"
+                      className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-150 cursor-pointer ${
+                        canRedo
+                          ? 'bg-white/20 hover:bg-white/30 text-white shadow-md active:scale-95 border border-white/25'
+                          : 'bg-white/5 text-white/25 border border-white/5 cursor-not-allowed pointer-events-none'
+                      }`}
+                    >
+                      <Redo2 size={20} strokeWidth={2.4} />
+                    </button>
+                  </div>
+                </div>
 
                 {/* Hidden File Input */}
                 <input
@@ -1404,56 +1422,13 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   className="hidden"
                   onChange={handleFileScan}
                 />
-              </div>
+              </motion.div>
             )}
-          </motion.div>
-
-          {/* Minimalist Confirmation Popup for Item Removal inside Scanner Modal */}
-          {itemToDelete && (
-            <div
-              id="confirm-removal-scanner-modal"
-              role="dialog"
-              aria-modal="true"
-              className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-[2px]"
-              onClick={() => setItemToDelete(null)}
-            >
-              <div
-                className="w-full max-w-sm bg-white rounded-2xl p-6 border border-[#DEE3DE] shadow-2xl space-y-4"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="space-y-1.5">
-                  <h3 className="text-[19px] font-bold text-[#252825]">
-                    Remove item
-                  </h3>
-                  <p className="text-[13.5px] text-[#555A55] leading-relaxed">
-                    Do you want to remove <span className="font-semibold text-[#252825]">{itemToDelete.name}</span> from this sale?
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-end gap-2.5 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setItemToDelete(null)}
-                    className="h-10 px-4 rounded-xl border border-[#DEE3DE] text-[13.5px] font-semibold text-[#252825] hover:bg-gray-100 active:scale-95 transition-all cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleRemoveFromCart(itemToDelete.id);
-                      setItemToDelete(null);
-                    }}
-                    className="h-10 px-4 rounded-xl bg-[#252825] text-white text-[13.5px] font-semibold hover:bg-black active:scale-95 transition-all cursor-pointer"
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+          </AnimatePresence>
+        </motion.div>
       )}
     </AnimatePresence>
   );
 };
+
+

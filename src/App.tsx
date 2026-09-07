@@ -375,13 +375,17 @@ export default function App() {
           style: {
             backgroundColor: '#0F172A',
             color: '#FFFFFF',
-            border: 'none',
+            border: '1px solid rgba(51, 65, 85, 0.4)',
             outline: 'none',
-            boxShadow: '0 8px 24px -4px rgba(15, 23, 42, 0.35)',
+            boxShadow: '0 8px 24px -4px rgba(15, 23, 42, 0.45)',
             borderRadius: '14px',
-            padding: '10px 14px',
+            padding: '8px 15px',
             minHeight: 'unset',
             fontSize: '13.5px',
+            width: 'fit-content',
+            maxWidth: 'calc(100vw - 32px)',
+            marginLeft: 'auto',
+            marginRight: 'auto',
           },
         }}
       />
@@ -421,6 +425,7 @@ export default function App() {
               style={{
                 backdropFilter: 'blur(12px)',
                 WebkitBackdropFilter: 'blur(12px)',
+                paddingTop: 'env(safe-area-inset-top, 0px)',
               }}
             >
               <div className="h-16 sm:h-[68px] px-5 flex items-center justify-center relative">

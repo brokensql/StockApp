@@ -47,8 +47,12 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           className="mx-4 my-2 p-3 bg-[#F0F5F2] border border-[#DEE3DE] rounded-2xl flex items-center justify-between gap-3 text-left shadow-xs"
         >
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-[#4F8065] text-white flex items-center justify-center flex-shrink-0 shadow-xs">
-              <Download size={18} strokeWidth={2.2} />
+            <div className="w-10 h-10 rounded-xl bg-white border border-[#DEE3DE] overflow-hidden flex items-center justify-center flex-shrink-0 shadow-xs p-0.5">
+              <img
+                src="/icon_152.png"
+                alt="StockApp Logo"
+                className="w-full h-full object-contain rounded-lg"
+              />
             </div>
             <div className="min-w-0">
               <h4 className="text-[13px] font-semibold text-[#252825] leading-snug truncate">
@@ -85,8 +89,12 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl border border-[#DEE3DE] text-left">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-[#4F8065] text-white flex items-center justify-center">
-                    <Download size={16} />
+                  <div className="w-8 h-8 rounded-lg bg-white border border-[#DEE3DE] overflow-hidden flex items-center justify-center flex-shrink-0 p-0.5 shadow-2xs">
+                    <img
+                      src="/icon_152.png"
+                      alt="StockApp Logo"
+                      className="w-full h-full object-contain rounded-md"
+                    />
                   </div>
                   <h3 className="text-[16px] font-bold text-[#252825]">
                     Install on iPhone / iPad
@@ -148,8 +156,12 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
           <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl border border-[#DEE3DE] text-left">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-[#4F8065] text-white flex items-center justify-center">
-                  <Download size={16} />
+                <div className="w-8 h-8 rounded-lg bg-white border border-[#DEE3DE] overflow-hidden flex items-center justify-center flex-shrink-0 p-0.5 shadow-2xs">
+                  <img
+                    src="/icon_152.png"
+                    alt="StockApp Logo"
+                    className="w-full h-full object-contain rounded-md"
+                  />
                 </div>
                 <h3 className="text-[16px] font-bold text-[#252825]">
                   Install on iPhone / iPad

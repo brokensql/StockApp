@@ -49,6 +49,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       exit={{ opacity: 0, y: -6 }}
       transition={{ duration: 0.25, ease: 'easeOut' }}
       className="w-full max-w-[430px] mx-auto px-5 pt-6 sm:pt-8 pb-28 sm:pb-32"
+      style={{ paddingTop: 'calc(1.5rem + env(safe-area-inset-top, 0px))' }}
     >
       {/* Home Greeting Bar */}
       <section aria-label="User and Store Greeting" className="mb-6 pt-2 flex items-center justify-between">

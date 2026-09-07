@@ -112,8 +112,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         onScanSuccess={handleScanSuccess}
         onProceedToActiveSale={handleProceedToSale}
         products={products}
-        allowMultiScan={true}
-        defaultMode="multi"
         title="Scan Barcode"
       />
 
@@ -127,6 +125,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           <div
             id="bottom-nav-bar"
             className="bg-white border-x border-t border-[#DEE3DE] rounded-t-[24px] sm:rounded-t-[28px] shadow-[0_-4px_24px_rgba(37,40,37,0.06)] px-2 pt-1.5 pb-2.5 sm:pb-3 flex items-center justify-between relative z-40"
+            style={{ paddingBottom: 'calc(10px + env(safe-area-inset-bottom, 0px))' }}
           >
             {/* Left Navigation Items */}
             <div className="flex-1 flex items-center justify-around">
