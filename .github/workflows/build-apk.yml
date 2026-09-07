@@ -49,6 +49,49 @@ jobs:
       - name: Sync web assets into android/app
         run: npx cap sync android
 
+      - name: Stamp launcher icon and label
+        run: |
+          # 1. App name: write res/values/strings.xml so the launcher label is 'StockApp'
+          mkdir -p android/app/src/main/res/values
+          cat > android/app/src/main/res/values/strings.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">StockApp</string>
+              <string name="title_activity_main">StockApp</string>
+              <string name="package_name">com.sageinventory.app</string>
+              <string name="custom_url_scheme">com.sageinventory.app</string>
+          </resources>
+          XML
+
+          # 2. Launcher icon: copy the public PWA icons into every Android mipmap density bucket
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p "android/app/src/main/res/mipmap-$d"
+            cp public/icon_192.png "android/app/src/main/res/mipmap-$d/ic_launcher.png"
+            cp public/icon_192.png "android/app/src/main/res/mipmap-$d/ic_launcher_round.png"
+            cp public/icon_192.png "android/app/src/main/res/mipmap-$d/ic_launcher_foreground.png"
+          done
+
+          # 3. Adaptive icon for Android 8.0+ (API 26+)
+          mkdir -p android/app/src/main/res/mipmap-anydpi-v26
+          cat > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          XML
+          cp android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+
+          mkdir -p android/app/src/main/res/values
+          grep -q 'ic_launcher_background' android/app/src/main/res/values/colors.xml 2>/dev/null || cat >> android/app/src/main/res/values/colors.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_launcher_background">#4F8065</color>
+          </resources>
+          XML
+
+          ls -R android/app/src/main/res/ | head -40
+
       - name: Declare camera permission for barcode scanner
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml

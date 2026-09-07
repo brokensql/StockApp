@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.sageinventory.app',
-  appName: 'Sage Inventory',
+  appName: 'StockApp',
   webDir: 'dist',
   android: {
     allowMixedContent: false,
