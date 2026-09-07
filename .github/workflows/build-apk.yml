@@ -82,14 +82,6 @@ jobs:
           XML
           cp android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
 
-          mkdir -p android/app/src/main/res/values
-          grep -q 'ic_launcher_background' android/app/src/main/res/values/colors.xml 2>/dev/null || cat >> android/app/src/main/res/values/colors.xml <<'XML'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <color name="ic_launcher_background">#4F8065</color>
-          </resources>
-          XML
-
           ls -R android/app/src/main/res/ | head -40
 
       - name: Declare camera permission for barcode scanner
