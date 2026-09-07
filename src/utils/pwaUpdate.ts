@@ -26,6 +26,22 @@ export function initPWAUpdateManager() {
 
   if (isNative) return;
 
+  // Unregister any stale dev-sw or legacy development service workers
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      for (const reg of registrations) {
+        if (
+          reg.active?.scriptURL.includes('dev-sw.js') ||
+          reg.installing?.scriptURL.includes('dev-sw.js') ||
+          reg.waiting?.scriptURL.includes('dev-sw.js')
+        ) {
+          console.log('[PWA] Unregistering stale dev-sw service worker:', reg.scope);
+          reg.unregister();
+        }
+      }
+    }).catch(() => {});
+  }
+
   // Listen for controllerchange: when new Service Worker takes over, reload to apply updates
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -36,7 +52,13 @@ export function initPWAUpdateManager() {
     });
   }
 
-  // Register service worker with auto-update
+  // Only register service worker in production builds or if supported
+  if (import.meta.env.DEV) {
+    console.log('[PWA] Running in development mode - Service Worker registration bypassed.');
+    return;
+  }
+
+  // Register service worker with auto-update in production
   updateSWHandler = registerSW({
     immediate: true,
     onRegisteredSW(swUrl, registration) {
@@ -82,7 +104,7 @@ export function initPWAUpdateManager() {
       notifyListeners(false);
     },
     onRegisterError(error) {
-      console.warn('[PWA] Service Worker registration failed:', error);
+      console.warn('[PWA] Service Worker registration info:', error);
     },
   });
 
@@ -155,8 +177,26 @@ export async function checkForAppUpdate(): Promise<{
       };
     }
 
+    // Skip update check if script is a stale dev-sw or in development
+    if (
+      reg.active?.scriptURL.includes('dev-sw.js') ||
+      reg.installing?.scriptURL.includes('dev-sw.js') ||
+      reg.waiting?.scriptURL.includes('dev-sw.js')
+    ) {
+      await reg.unregister();
+      isCheckingUpdate = false;
+      return {
+        status: 'no-update',
+        message: 'You are using the latest version of StockApp.',
+      };
+    }
+
     // Attempt registration update
-    await reg.update();
+    try {
+      await reg.update();
+    } catch (updateErr) {
+      console.debug('[PWA] Service worker update call bypassed:', updateErr);
+    }
 
     // Check if a new worker is installing or waiting
     if (reg.waiting || reg.installing) {

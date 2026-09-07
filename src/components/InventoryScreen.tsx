@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
-import { Search, Plus, X, AlertCircle } from 'lucide-react';
+import { Search, Plus, X, AlertCircle, ScanLine } from 'lucide-react';
 import { Product, InventoryFilter } from '../types';
 import { ProductDetailModal } from './ProductDetailModal';
+import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 interface InventoryScreenProps {
   products: Product[];
@@ -26,6 +27,8 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
   const [activeFilter, setActiveFilter] = useState<InventoryFilter>('all');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(initialAddModalOpen);
+  const [isInventoryScannerOpen, setIsInventoryScannerOpen] = useState(false);
+  const [dynamicInitialSku, setDynamicInitialSku] = useState(initialSku || '');
 
   useEffect(() => {
     if (initialAddModalOpen) {
@@ -33,6 +36,12 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
       setIsModalOpen(true);
     }
   }, [initialAddModalOpen]);
+
+  useEffect(() => {
+    if (initialSku) {
+      setDynamicInitialSku(initialSku);
+    }
+  }, [initialSku]);
 
   // Compute counts for tabs
   const filterCounts = useMemo(() => {
@@ -72,11 +81,13 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
 
   const handleOpenAddModal = () => {
     setSelectedProduct(null);
+    setDynamicInitialSku('');
     setIsModalOpen(true);
   };
 
   const handleOpenEditModal = (product: Product) => {
     setSelectedProduct(product);
+    setDynamicInitialSku('');
     setIsModalOpen(true);
   };
 
@@ -85,6 +96,28 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
       onUpdateProduct(product);
     } else {
       onAddProduct(product);
+    }
+  };
+
+  const handleInventoryScanSuccess = (scannedCode: string) => {
+    const clean = scannedCode.trim();
+    if (!clean) return;
+
+    const matched = products.find(
+      (p) =>
+        (p.sku && p.sku.trim().toLowerCase() === clean.toLowerCase()) ||
+        p.id.toLowerCase() === clean.toLowerCase() ||
+        p.name.trim().toLowerCase() === clean.toLowerCase()
+    );
+
+    if (matched) {
+      setSelectedProduct(matched);
+      setDynamicInitialSku('');
+      setIsModalOpen(true);
+    } else {
+      setSelectedProduct(null);
+      setDynamicInitialSku(clean);
+      setIsModalOpen(true);
     }
   };
 
@@ -111,29 +144,41 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
       transition={{ duration: 0.22, ease: 'easeOut' }}
       className="w-full max-w-[430px] mx-auto px-5 pt-6 pb-32 sm:pb-36"
     >
-      {/* Search Input */}
-      <div className="relative mb-3.5 pt-1">
-        <div className="absolute inset-y-0 left-0 pl-3.5 pt-1 flex items-center pointer-events-none text-[#6E746F]">
-          <Search size={18} strokeWidth={2} />
+      {/* Search Input & Scan Barcode Action */}
+      <div className="relative mb-3.5 pt-1 flex items-center gap-2">
+        <div className="relative flex-1">
+          <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#6E746F]">
+            <Search size={18} strokeWidth={2} />
+          </div>
+          <input
+            id="inventory-search-input"
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search products..."
+            className="w-full h-12 pl-10 pr-10 bg-white border border-[#DEE3DE] rounded-2xl text-[15px] text-[#252825] placeholder:text-[#6E746F]/60 focus:outline-none focus:border-[#4F8065] focus:ring-1 focus:ring-[#4F8065] shadow-[0_2px_6px_rgba(37,40,37,0.02)] transition-colors"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-[#6E746F] hover:text-[#252825] cursor-pointer"
+              aria-label="Clear search"
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
-        <input
-          id="inventory-search-input"
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search products..."
-          className="w-full h-12 pl-10 pr-10 bg-white border border-[#DEE3DE] rounded-2xl text-[15px] text-[#252825] placeholder:text-[#6E746F]/60 focus:outline-none focus:border-[#4F8065] focus:ring-1 focus:ring-[#4F8065] shadow-[0_2px_6px_rgba(37,40,37,0.02)] transition-colors"
-        />
-        {searchQuery && (
-          <button
-            type="button"
-            onClick={() => setSearchQuery('')}
-            className="absolute inset-y-0 right-0 pr-3.5 pt-1 flex items-center text-[#6E746F] hover:text-[#252825] cursor-pointer"
-            aria-label="Clear search"
-          >
-            <X size={16} />
-          </button>
-        )}
+
+        <button
+          type="button"
+          onClick={() => setIsInventoryScannerOpen(true)}
+          className="h-12 w-12 rounded-2xl bg-white hover:bg-[#4F8065]/10 active:bg-[#4F8065]/20 border border-[#DEE3DE] flex items-center justify-center text-[#4F8065] shadow-[0_2px_6px_rgba(37,40,37,0.02)] transition-all cursor-pointer flex-shrink-0"
+          title="Scan barcode to find or add product"
+          aria-label="Scan barcode"
+        >
+          <ScanLine size={20} strokeWidth={2.3} />
+        </button>
       </div>
 
       {/* Filter Tabs */}
@@ -329,10 +374,24 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({
       <ProductDetailModal
         isOpen={isModalOpen}
         product={selectedProduct}
-        initialSku={initialSku}
-        onClose={() => setIsModalOpen(false)}
+        initialSku={dynamicInitialSku || initialSku}
+        products={products}
+        onClose={() => {
+          setIsModalOpen(false);
+          setDynamicInitialSku('');
+        }}
         onSave={handleSaveProduct}
         onDelete={onDeleteProduct}
+      />
+
+      {/* Direct Inventory Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        isOpen={isInventoryScannerOpen}
+        onClose={() => setIsInventoryScannerOpen(false)}
+        onScanSuccess={handleInventoryScanSuccess}
+        products={products}
+        mode="inventory"
+        title="Scan Product Barcode"
       />
     </motion.div>
   );

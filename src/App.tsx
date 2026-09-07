@@ -384,6 +384,8 @@ export default function App() {
             fontSize: '13.5px',
             width: 'fit-content',
             maxWidth: 'calc(100vw - 32px)',
+            left: 0,
+            right: 0,
             marginLeft: 'auto',
             marginRight: 'auto',
           },
@@ -402,12 +404,23 @@ export default function App() {
         <div className="w-full max-w-[430px] min-h-[100dvh] flex flex-col relative bg-[#f7f9fb]">
           <ActiveSaleScreen
             products={products}
+            existingSales={sales}
             onCompleteSale={handleCompleteSale}
-            onCancelSale={() => setActiveSaleSession({ isOpen: false })}
+            onCancelSale={() =>
+              setActiveSaleSession({
+                isOpen: false,
+                initialItems: [],
+                initialUnrecognizedBarcode: null,
+              })
+            }
             initialItems={activeSaleSession.initialItems}
             initialUnrecognizedBarcode={activeSaleSession.initialUnrecognizedBarcode}
             onAddNewProductWithBarcode={(barcode) => {
-              setActiveSaleSession({ isOpen: false });
+              setActiveSaleSession({
+                isOpen: false,
+                initialItems: [],
+                initialUnrecognizedBarcode: null,
+              });
               setStoreSubTab('inventory');
               setNewProductInitialSku(barcode);
               setIsAddProductImmediately(true);

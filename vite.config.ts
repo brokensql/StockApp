@@ -17,6 +17,7 @@ export default defineConfig(() => {
           'manifest.json',
           'icon_152.png',
           'icon_192.png',
+          'icon_512.png',
         ],
         manifest: {
           id: '/',
@@ -42,10 +43,22 @@ export default defineConfig(() => {
               purpose: 'any',
             },
             {
-              src: '/icon_192.png',
+              src: '/icon_512.png',
               sizes: '512x512',
               type: 'image/png',
-              purpose: 'any maskable',
+              purpose: 'any',
+            },
+            {
+              src: '/icon_192.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'maskable',
+            },
+            {
+              src: '/icon_512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
             },
           ],
         },

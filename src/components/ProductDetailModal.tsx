@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Trash2, AlertCircle, Camera, ChevronDown } from 'lucide-react';
+import { X, Trash2, AlertCircle, Camera, ChevronDown, ScanLine } from 'lucide-react';
 import { Product } from '../types';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { STANDARD_CATEGORIES } from '../data/categories';
@@ -9,6 +9,7 @@ interface ProductDetailModalProps {
   isOpen: boolean;
   product: Product | null; // null means adding a new product
   initialSku?: string;
+  products?: Product[];
   onClose: () => void;
   onSave: (product: Product) => void;
   onDelete?: (productId: string) => void;
@@ -18,6 +19,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   isOpen,
   product,
   initialSku,
+  products = [],
   onClose,
   onSave,
   onDelete,
@@ -60,6 +62,25 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       setError('');
     }
   }, [product, isOpen, initialSku]);
+
+  const handleBarcodeScanned = (scannedCode: string) => {
+    const clean = scannedCode.trim();
+    setSku(clean);
+    if (!product && products.length > 0) {
+      const matched = products.find(
+        (p) =>
+          (p.sku && p.sku.trim().toLowerCase() === clean.toLowerCase()) ||
+          p.id.toLowerCase() === clean.toLowerCase()
+      );
+      if (matched) {
+        setName(matched.name);
+        setCategory(matched.category);
+        setPrice(matched.price.toString());
+        setStock(matched.stock.toString());
+        setThreshold(matched.lowStockThreshold.toString());
+      }
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -278,16 +299,16 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       type="text"
                       value={sku}
                       onChange={(e) => setSku(e.target.value)}
-                      placeholder="e.g. CG-101 or scan barcode"
+                      placeholder="e.g. 4800016644815 or scan"
                       className="w-full h-12 pl-3.5 pr-10 bg-white border border-[#DEE3DE] rounded-xl text-[15px] text-[#252825] placeholder:text-[#6E746F]/50 focus:outline-none focus:border-[#4F8065] focus:ring-1 focus:ring-[#4F8065]"
                     />
                     <button
                       type="button"
                       onClick={() => setIsBarcodeScannerOpen(true)}
-                      className="absolute right-3 text-[#6E746F] hover:text-[#4F8065] transition-colors p-1 cursor-pointer"
+                      className="absolute right-2 text-[#4F8065] hover:bg-[#4F8065]/10 p-1.5 rounded-lg transition-colors cursor-pointer"
                       title="Scan barcode with camera"
                     >
-                      <Camera size={18} />
+                      <ScanLine size={19} strokeWidth={2.3} />
                     </button>
                   </div>
                 </div>
@@ -321,7 +342,9 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           <BarcodeScannerModal
             isOpen={isBarcodeScannerOpen}
             onClose={() => setIsBarcodeScannerOpen(false)}
-            onScanSuccess={(scannedCode) => setSku(scannedCode)}
+            onScanSuccess={handleBarcodeScanned}
+            products={products}
+            mode="inventory"
             title="Scan Product Barcode"
           />
         </div>

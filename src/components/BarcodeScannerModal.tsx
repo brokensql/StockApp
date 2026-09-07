@@ -52,6 +52,7 @@ export interface BarcodeScannerModalProps {
   title?: string;
   products?: Product[];
   onItemScanned?: (product: Product) => void;
+  mode?: 'sale' | 'inventory' | 'single';
   // Deprecated legacy props kept for type compatibility
   allowMultiScan?: boolean;
   defaultMode?: 'single' | 'multi';
@@ -115,7 +116,11 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   onProceedToActiveSale,
   products = [],
   onItemScanned,
+  mode,
+  title,
 }) => {
+  const isInventoryMode =
+    mode === 'inventory' || mode === 'single' || (!onProceedToActiveSale && Boolean(onScanSuccess));
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
@@ -304,6 +309,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       const {
         products: currentProducts,
         onItemScanned: currentOnItemScanned,
+        onScanSuccess: currentOnScanSuccess,
+        onClose: currentOnClose,
       } = propsRef.current;
 
       const matched = currentProducts.find(
@@ -313,6 +320,43 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           p.name.trim().toLowerCase() === clean.toLowerCase()
       );
 
+      // --- INVENTORY MODE LOGIC (Add/Update Product in Inventory) ---
+      if (isInventoryMode) {
+        if (matched) {
+          if (currentOnItemScanned) {
+            currentOnItemScanned(matched);
+          }
+          setScanToast({
+            id: Date.now(),
+            type: 'success',
+            title: matched.name,
+            subtitle: `Barcode: ${clean} • Existing product`,
+          });
+        } else {
+          setScanToast({
+            id: Date.now(),
+            type: 'success',
+            title: 'Barcode Scanned',
+            subtitle: clean,
+          });
+        }
+
+        if (currentOnScanSuccess) {
+          currentOnScanSuccess(clean);
+        }
+
+        if (toastDismissTimerRef.current) {
+          clearTimeout(toastDismissTimerRef.current);
+        }
+
+        // Auto close to return to product details form with barcode
+        window.setTimeout(() => {
+          currentOnClose();
+        }, 320);
+        return;
+      }
+
+      // --- SALES MODE LOGIC (Add to Customer Sales Cart) ---
       if (matched) {
         if (currentOnItemScanned) {
           currentOnItemScanned(matched);
@@ -348,7 +392,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           subtitle: `₱${matched.price.toFixed(2)} • Added to cart`,
         });
       } else {
-        // Unrecognized barcode: Do NOT say "Barcode added", show accurate warning toast
+        // Unrecognized barcode in sales mode: Show accurate warning toast
         pushHistory(scannedCart, clean, 'Unrecognized');
 
         setScanToast({
@@ -822,8 +866,30 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     const {
       products: currentProducts,
       onItemScanned: currentOnItemScanned,
+      onScanSuccess: currentOnScanSuccess,
+      onClose: currentOnClose,
     } = propsRef.current;
 
+    // --- INVENTORY MODE KEY SUBMIT ---
+    if (isInventoryMode) {
+      const code = codes[0];
+      const matched = currentProducts.find(
+        (p) =>
+          (p.sku && p.sku.trim().toLowerCase() === code.toLowerCase()) ||
+          p.id.toLowerCase() === code.toLowerCase() ||
+          p.name.trim().toLowerCase() === code.toLowerCase()
+      );
+      if (matched && currentOnItemScanned) {
+        currentOnItemScanned(matched);
+      }
+      if (currentOnScanSuccess) {
+        currentOnScanSuccess(code);
+      }
+      currentOnClose();
+      return;
+    }
+
+    // --- SALES MODE KEY SUBMIT ---
     let updatedCart = [...scannedCart];
     let lastUnrecognized: string | null = unrecognizedBarcode;
     const matchedNames: string[] = [];
@@ -928,7 +994,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -10, scale: 0.95 }}
                 transition={{ duration: 0.18, ease: 'easeOut' }}
-                className="absolute top-4 sm:top-5 left-1/2 -translate-x-1/2 z-50 pointer-events-none w-fit max-w-[calc(100vw-32px)] px-3.5 py-2 rounded-[14px] bg-[#0F172A] text-white shadow-[0_8px_24px_-4px_rgba(15,23,42,0.45)] border border-slate-700/50 flex items-center gap-2 select-none whitespace-nowrap"
+                className="absolute top-4 sm:top-5 left-0 right-0 mx-auto z-50 pointer-events-none w-fit max-w-[calc(100vw-32px)] px-3.5 py-2 rounded-[14px] bg-[#0F172A] text-white shadow-[0_8px_24px_-4px_rgba(15,23,42,0.45)] border border-slate-700/50 flex items-center gap-2 select-none whitespace-nowrap"
               >
                 <div
                   className={`w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -984,8 +1050,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                     <X size={18} strokeWidth={2.5} />
                   </button>
 
-                  {/* Checkout Button in Key View Header */}
-                  {(totalQuantity > 0 || unrecognizedBarcode) && (
+                  {/* Checkout Button in Key View Header (Sales Mode only) */}
+                  {!isInventoryMode && (totalQuantity > 0 || unrecognizedBarcode) && (
                     <button
                       type="button"
                       onClick={handleCheckout}
@@ -1000,10 +1066,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 {/* Center Content */}
                 <div className="my-auto flex flex-col items-center max-w-sm mx-auto w-full px-2">
                   <h2 className="text-[20px] font-bold text-[#252825] text-center mb-1">
-                    Type product barcode
+                    {isInventoryMode ? 'Type product barcode' : 'Type product barcode'}
                   </h2>
                   <p className="text-[13px] text-[#717671] text-center mb-5">
-                    Enter the barcode digits or add multiple lines
+                    {isInventoryMode
+                      ? 'Enter the barcode digits to assign to this product in inventory'
+                      : 'Enter the barcode digits or add multiple lines'}
                   </p>
 
                   {/* Barcode graphic for aesthetics */}
@@ -1042,9 +1110,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                     </svg>
                   </div>
 
-                  {/* Multi-line minimal underline inputs */}
+                  {/* Multi-line minimal underline inputs (Single line in inventory mode) */}
                   <div className="w-full flex flex-col gap-3.5 mb-2 max-h-[260px] overflow-y-auto px-1 py-1">
-                    {manualBarcodes.map((code, idx) => (
+                    {(isInventoryMode ? manualBarcodes.slice(0, 1) : manualBarcodes).map((code, idx) => (
                       <div key={idx} className="relative w-full group">
                         <input
                           ref={(el) => {
@@ -1055,7 +1123,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                           pattern="[0-9]*"
                           autoFocus={idx === 0}
                           placeholder={
-                            manualBarcodes.length > 1
+                            isInventoryMode
+                              ? 'e.g. 4800016644815'
+                              : manualBarcodes.length > 1
                               ? `Barcode #${idx + 1}...`
                               : 'Click here to type barcode...'
                           }
@@ -1064,7 +1134,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
-                              if (idx === manualBarcodes.length - 1 && code.trim().length > 0) {
+                              if (!isInventoryMode && idx === manualBarcodes.length - 1 && code.trim().length > 0) {
                                 handleAddLine();
                               } else {
                                 handleKeySubmit();
@@ -1074,8 +1144,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                           className="w-full h-11 bg-transparent text-center font-mono text-[20px] font-bold text-[#161816] placeholder:text-[#9CA3AF] placeholder:text-[14px] placeholder:font-normal outline-none transition-all pb-1.5 border-b-2 border-[#DEE3DE] focus:border-[#4F8065] px-8"
                         />
 
-                        {/* Remove Line (if multiple lines exist) */}
-                        {manualBarcodes.length > 1 && (
+                        {/* Remove Line (if multiple lines exist and not inventory mode) */}
+                        {!isInventoryMode && manualBarcodes.length > 1 && (
                           <button
                             type="button"
                             onClick={() => handleRemoveLine(idx)}
@@ -1102,15 +1172,17 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                     ))}
                   </div>
 
-                  {/* Option to add another barcode line (Black styling) */}
-                  <button
-                    type="button"
-                    onClick={handleAddLine}
-                    className="flex items-center gap-1.5 text-[13px] font-semibold text-[#161816] hover:text-black active:scale-95 transition-all py-1.5 px-3 rounded-lg hover:bg-black/5 cursor-pointer mb-3"
-                  >
-                    <Plus size={15} strokeWidth={2.5} />
-                    <span>Add another barcode line</span>
-                  </button>
+                  {/* Option to add another barcode line (Only in sales multi-mode) */}
+                  {!isInventoryMode && (
+                    <button
+                      type="button"
+                      onClick={handleAddLine}
+                      className="flex items-center gap-1.5 text-[13px] font-semibold text-[#161816] hover:text-black active:scale-95 transition-all py-1.5 px-3 rounded-lg hover:bg-black/5 cursor-pointer mb-3"
+                    >
+                      <Plus size={15} strokeWidth={2.5} />
+                      <span>Add another barcode line</span>
+                    </button>
+                  )}
 
                   {/* Submit Button in project Green variant */}
                   <button
@@ -1120,16 +1192,18 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                     className="w-full h-12 bg-[#4F8065] hover:bg-[#3D684F] active:scale-[0.99] disabled:opacity-35 disabled:cursor-not-allowed text-white rounded-full font-bold text-[15px] flex items-center justify-center shadow-[0_4px_14px_rgba(79,128,101,0.35)] transition-all cursor-pointer"
                   >
                     <span>
-                      {validBarcodesCount > 1
+                      {isInventoryMode
+                        ? 'Confirm Barcode'
+                        : validBarcodesCount > 1
                         ? `Add ${validBarcodesCount} Barcodes`
                         : 'Add Barcode'}
                     </span>
                   </button>
                 </div>
 
-                {/* Bottom Bar: Summary & Checkout if items scanned */}
+                {/* Bottom Bar: Summary & Checkout if items scanned (Sales mode only) */}
                 <div className="flex flex-col items-center gap-3 pt-2">
-                  {totalQuantity > 0 && (
+                  {!isInventoryMode && totalQuantity > 0 && (
                     <div className="w-full max-w-sm flex items-center justify-between px-4 py-2.5 bg-[#F2F4F2] rounded-2xl border border-[#DEE3DE]">
                       <div className="flex flex-col leading-tight">
                         <span className="text-[12px] text-[#717671] font-medium">
@@ -1198,6 +1272,11 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                     >
                       <X size={15} strokeWidth={2.4} />
                     </button>
+                    {isInventoryMode && (
+                      <span className="px-3 py-1 rounded-full bg-black/45 text-white/95 text-[12px] font-semibold backdrop-blur-md">
+                        {title || 'Scan Product Barcode'}
+                      </span>
+                    )}
                   </div>
 
                   {/* Top Right Controls */}
@@ -1251,64 +1330,145 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   />
                 )}
 
-                {/* Center Viewfinder Reticle with Clean Crisp White Corners */}
+                {/* Center Viewfinder Reticle with Reference Rounded White Corners */}
                 <div className="relative z-20 flex items-center justify-center my-auto pointer-events-none">
-                  <div className="relative w-64 h-80 sm:w-72 sm:h-92 rounded-3xl flex items-center justify-center transition-all duration-200 overflow-hidden">
-                    <div className="absolute top-0 left-0 w-11 h-11 border-t-[3.5px] border-l-[3.5px] border-white/95 rounded-tl-2xl drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] z-20" />
-                    <div className="absolute top-0 right-0 w-11 h-11 border-t-[3.5px] border-r-[3.5px] border-white/95 rounded-tr-2xl drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] z-20" />
-                    <div className="absolute bottom-0 left-0 w-11 h-11 border-b-[3.5px] border-l-[3.5px] border-white/95 rounded-bl-2xl drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] z-20" />
-                    <div className="absolute bottom-0 right-0 w-11 h-11 border-b-[3.5px] border-r-[3.5px] border-white/95 rounded-br-2xl drop-shadow-[0_1px_3px_rgba(0,0,0,0.6)] z-20" />
-
-                    {/* Hardware-Accelerated Laser Scanner Line with Glowing Dots */}
-                    <div
-                      className={`absolute inset-x-2 -translate-y-1/2 flex items-center justify-center pointer-events-none transition-all duration-300 z-10 ${
-                        isScanningActive ? 'animate-laser-sweep-fast' : 'animate-laser-sweep'
-                      }`}
+                  <div className="relative w-64 h-80 sm:w-72 sm:h-92 flex items-center justify-center transition-all duration-200">
+                    {/* 4 Floating Rounded Corner Brackets in Pure White (Layered on top with z-30) */}
+                    <svg
+                      className="absolute top-0 left-0 w-10 h-10 pointer-events-none z-30"
+                      viewBox="0 0 40 40"
+                      fill="none"
                     >
-                      {/* Ambient Red Laser Aura */}
-                      <div
-                        className={`absolute inset-x-0 h-10 -translate-y-1/2 bg-gradient-to-b from-red-500/25 via-red-500/5 to-transparent blur-[3px] pointer-events-none transition-opacity duration-300 ${
-                          isScanningActive ? 'opacity-100' : 'opacity-65'
-                        }`}
+                      <path
+                        d="M4 36V16C4 9.37 9.37 4 16 4H36"
+                        stroke="white"
+                        strokeWidth="3.5"
+                        strokeLinecap="round"
                       />
-
-                      {/* Main Red Laser Beam */}
-                      <div
-                        className={`w-full h-[2.5px] bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_12px_#ef4444,0_0_24px_rgba(239,68,68,0.7)] ${
-                          isScanningActive ? 'opacity-100' : 'opacity-85'
-                        }`}
+                    </svg>
+                    <svg
+                      className="absolute top-0 right-0 w-10 h-10 pointer-events-none z-30"
+                      viewBox="0 0 40 40"
+                      fill="none"
+                    >
+                      <path
+                        d="M4 4H24C30.63 4 36 9.37 36 16V36"
+                        stroke="white"
+                        strokeWidth="3.5"
+                        strokeLinecap="round"
                       />
+                    </svg>
+                    <svg
+                      className="absolute bottom-0 left-0 w-10 h-10 pointer-events-none z-30"
+                      viewBox="0 0 40 40"
+                      fill="none"
+                    >
+                      <path
+                        d="M4 4V24C4 30.63 9.37 36 16 36H36"
+                        stroke="white"
+                        strokeWidth="3.5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <svg
+                      className="absolute bottom-0 right-0 w-10 h-10 pointer-events-none z-30"
+                      viewBox="0 0 40 40"
+                      fill="none"
+                    >
+                      <path
+                        d="M4 36H24C30.63 36 36 30.63 36 24V4"
+                        stroke="white"
+                        strokeWidth="3.5"
+                        strokeLinecap="round"
+                      />
+                    </svg>
 
-                      {/* White Core Filament */}
-                      <div className="absolute inset-x-8 h-[1px] bg-gradient-to-r from-transparent via-white to-transparent opacity-95" />
+                    {/* Dedicated Inner Scan Chamber (Strictly contained within corners without overlapping) */}
+                    <div className="absolute inset-y-3.5 inset-x-3.5 overflow-hidden pointer-events-none z-10">
+                      {/* CamScanner Style Bidirectional Scan (Red Edition) */}
+                      <div
+                        className={`absolute inset-x-1 -translate-y-1/2 pointer-events-none ${
+                          isScanningActive ? 'animate-camscanner-sweep-fast' : 'animate-camscanner-sweep'
+                        }`}
+                      >
+                        {/* Downward Sweep Trailing Curtain (Separated cleanly ABOVE the red line) */}
+                        <div
+                          className={`absolute bottom-full mb-[2px] inset-x-0 h-28 sm:h-36 bg-gradient-to-t from-red-500/30 via-red-500/10 to-transparent overflow-hidden rounded-t-sm ${
+                            isScanningActive ? 'animate-curtain-down-fast' : 'animate-curtain-down'
+                          }`}
+                        >
+                          {/* Subtle Horizontal Digital Scanlines */}
+                          <div
+                            className="absolute inset-0 opacity-20"
+                            style={{
+                              backgroundImage:
+                                'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(239, 68, 68, 0.4) 3px, rgba(239, 68, 68, 0.4) 4px)',
+                            }}
+                          />
+                        </div>
 
-                      {/* Glowing Dots along the Laser Movement */}
-                      {/* Center Glowing Pulse Node */}
-                      <div className="absolute left-1/2 -translate-x-1/2 w-3.5 h-3.5 flex items-center justify-center">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-                        <span className="relative inline-flex rounded-full w-2.5 h-2.5 bg-white border border-red-500 shadow-[0_0_10px_#ef4444,0_0_20px_#ef4444]" />
+                        {/* Upward Sweep Trailing Curtain (Separated cleanly BELOW the red line) */}
+                        <div
+                          className={`absolute top-full mt-[2px] inset-x-0 h-28 sm:h-36 bg-gradient-to-b from-red-500/30 via-red-500/10 to-transparent overflow-hidden rounded-b-sm ${
+                            isScanningActive ? 'animate-curtain-up-fast' : 'animate-curtain-up'
+                          }`}
+                        >
+                          {/* Subtle Horizontal Digital Scanlines */}
+                          <div
+                            className="absolute inset-0 opacity-20"
+                            style={{
+                              backgroundImage:
+                                'repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(239, 68, 68, 0.4) 3px, rgba(239, 68, 68, 0.4) 4px)',
+                            }}
+                          />
+                        </div>
+
+                        {/* Main Leading Red Laser Beam (Clean, solid, crisp with no overlapping haze) */}
+                        <div className="relative w-full z-20 flex items-center justify-center">
+                          <div className="h-[2.5px] w-full bg-[#EF4444] rounded-full shadow-[0_0_8px_#ef4444]" />
+                        </div>
                       </div>
 
-                      {/* Inner Left Glowing Dot */}
-                      <div className="absolute left-[30%] -translate-x-1/2 w-2 h-2 rounded-full bg-red-400 animate-dot-pulse shadow-[0_0_8px_#ef4444,0_0_14px_#ef4444]" />
-
-                      {/* Inner Right Glowing Dot */}
-                      <div
-                        className="absolute left-[70%] -translate-x-1/2 w-2 h-2 rounded-full bg-red-400 animate-dot-pulse shadow-[0_0_8px_#ef4444,0_0_14px_#ef4444]"
-                        style={{ animationDelay: '0.4s' }}
-                      />
-
-                      {/* Outer Left Accent Dot */}
-                      <div
-                        className="absolute left-[16%] -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-red-300 animate-dot-pulse shadow-[0_0_6px_#ef4444]"
-                        style={{ animationDelay: '0.7s' }}
-                      />
-
-                      {/* Outer Right Accent Dot */}
-                      <div
-                        className="absolute left-[84%] -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-red-300 animate-dot-pulse shadow-[0_0_6px_#ef4444]"
-                        style={{ animationDelay: '0.2s' }}
-                      />
+                      {/* CamScanner Digital Scan Particles (Scattered OCR Matrix Points) */}
+                      <div className="absolute inset-2 pointer-events-none z-10 overflow-hidden">
+                        {/* Particle Matrix Nodes */}
+                        <div
+                          className="absolute top-[18%] left-[15%] w-1.5 h-1.5 bg-red-400 shadow-[0_0_6px_#ef4444] rounded-[1px] animate-particle-flicker"
+                          style={{ animationDelay: '0.1s' }}
+                        />
+                        <div
+                          className="absolute top-[25%] right-[22%] w-1 h-1 bg-red-300 shadow-[0_0_4px_#ef4444] rounded-[1px] animate-particle-flicker"
+                          style={{ animationDelay: '0.6s' }}
+                        />
+                        <div
+                          className="absolute top-[38%] left-[28%] w-1 h-1 bg-red-400 shadow-[0_0_4px_#ef4444] rounded-[1px] animate-particle-flicker"
+                          style={{ animationDelay: '1.2s' }}
+                        />
+                        <div
+                          className="absolute top-[42%] right-[14%] w-1.5 h-1.5 bg-red-300 shadow-[0_0_6px_#ef4444] rounded-[1px] animate-particle-flicker"
+                          style={{ animationDelay: '0.3s' }}
+                        />
+                        <div
+                          className="absolute top-[55%] left-[18%] w-1 h-1 bg-red-400 shadow-[0_0_4px_#ef4444] rounded-[1px] animate-particle-flicker"
+                          style={{ animationDelay: '0.9s' }}
+                        />
+                        <div
+                          className="absolute top-[62%] right-[30%] w-1.5 h-1.5 bg-red-400 shadow-[0_0_6px_#ef4444] rounded-[1px] animate-particle-flicker"
+                          style={{ animationDelay: '1.5s' }}
+                        />
+                        <div
+                          className="absolute top-[75%] left-[32%] w-1 h-1 bg-red-300 shadow-[0_0_4px_#ef4444] rounded-[1px] animate-particle-flicker"
+                          style={{ animationDelay: '0.4s' }}
+                        />
+                        <div
+                          className="absolute top-[82%] right-[18%] w-1.5 h-1.5 bg-red-400 shadow-[0_0_6px_#ef4444] rounded-[1px] animate-particle-flicker"
+                          style={{ animationDelay: '1.1s' }}
+                        />
+                        <div
+                          className="absolute top-[48%] left-[60%] w-1 h-1 bg-red-300 shadow-[0_0_4px_#ef4444] rounded-[1px] animate-particle-flicker"
+                          style={{ animationDelay: '0.7s' }}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1318,8 +1478,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   className="relative z-30 flex flex-col items-center gap-3 p-4 pt-0"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {/* Floating Checkout Summary Bar if items have been scanned */}
-                  {totalQuantity > 0 && (
+                  {/* Floating Checkout Summary Bar if items have been scanned (Sales Mode only) */}
+                  {!isInventoryMode && totalQuantity > 0 && (
                     <div className="w-full max-w-xs flex items-center justify-between px-4 py-2.5 bg-[#161816]/90 backdrop-blur-md rounded-2xl border border-white/15 shadow-2xl text-white">
                       <div className="flex flex-col text-left leading-tight">
                         <span className="text-[11px] text-gray-300 font-medium">
@@ -1361,23 +1521,25 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                     </button>
                   </div>
 
-                  {/* Center Circle with Scanner Icon flanked by Undo and Redo U-Turn Arrow Buttons */}
+                  {/* Center Circle with Scanner Icon */}
                   <div className="flex items-center justify-center gap-4 mt-1">
-                    {/* Undo Button (Left U-turn arrow) */}
-                    <button
-                      type="button"
-                      onClick={handleUndo}
-                      disabled={!canUndo}
-                      aria-label="Undo scan"
-                      title="Undo scan"
-                      className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-150 cursor-pointer ${
-                        canUndo
-                          ? 'bg-white/20 hover:bg-white/30 text-white shadow-md active:scale-95 border border-white/25'
-                          : 'bg-white/5 text-white/25 border border-white/5 cursor-not-allowed pointer-events-none'
-                      }`}
-                    >
-                      <Undo2 size={20} strokeWidth={2.4} />
-                    </button>
+                    {/* Undo Button (Sales Mode only) */}
+                    {!isInventoryMode && (
+                      <button
+                        type="button"
+                        onClick={handleUndo}
+                        disabled={!canUndo}
+                        aria-label="Undo scan"
+                        title="Undo scan"
+                        className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-150 cursor-pointer ${
+                          canUndo
+                            ? 'bg-white/20 hover:bg-white/30 text-white shadow-md active:scale-95 border border-white/25'
+                            : 'bg-white/5 text-white/25 border border-white/5 cursor-not-allowed pointer-events-none'
+                        }`}
+                      >
+                        <Undo2 size={20} strokeWidth={2.4} />
+                      </button>
+                    )}
 
                     {/* Center Scan Button with Scanner Icon */}
                     <div className="p-1.5 rounded-full bg-white shadow-[0_4px_20px_rgba(0,0,0,0.35)] border border-[#DEE3DE]/80">
@@ -1396,21 +1558,23 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                       </button>
                     </div>
 
-                    {/* Redo Button (Right U-turn arrow) */}
-                    <button
-                      type="button"
-                      onClick={handleRedo}
-                      disabled={!canRedo}
-                      aria-label="Redo scan"
-                      title="Redo scan"
-                      className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-150 cursor-pointer ${
-                        canRedo
-                          ? 'bg-white/20 hover:bg-white/30 text-white shadow-md active:scale-95 border border-white/25'
-                          : 'bg-white/5 text-white/25 border border-white/5 cursor-not-allowed pointer-events-none'
-                      }`}
-                    >
-                      <Redo2 size={20} strokeWidth={2.4} />
-                    </button>
+                    {/* Redo Button (Sales Mode only) */}
+                    {!isInventoryMode && (
+                      <button
+                        type="button"
+                        onClick={handleRedo}
+                        disabled={!canRedo}
+                        aria-label="Redo scan"
+                        title="Redo scan"
+                        className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-150 cursor-pointer ${
+                          canRedo
+                            ? 'bg-white/20 hover:bg-white/30 text-white shadow-md active:scale-95 border border-white/25'
+                            : 'bg-white/5 text-white/25 border border-white/5 cursor-not-allowed pointer-events-none'
+                        }`}
+                      >
+                        <Redo2 size={20} strokeWidth={2.4} />
+                      </button>
+                    )}
                   </div>
                 </div>
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { SaleTransaction } from '../types';
 import { getPHTParts } from '../utils/philippineDate';
+import { CheckCircleIcon, ConfettiExplosion } from './ui/ticket-confirmation-card';
 
 interface ReceiptTicketCardProps {
   transaction: SaleTransaction;
@@ -17,6 +18,19 @@ export const ReceiptTicketCard: React.FC<ReceiptTicketCardProps> = ({
   hideThankYou = false,
   maxItems,
 }) => {
+  const [showConfetti, setShowConfetti] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!hideThankYou) {
+      const mountTimer = setTimeout(() => setShowConfetti(true), 100);
+      const unmountTimer = setTimeout(() => setShowConfetti(false), 6000);
+      return () => {
+        clearTimeout(mountTimer);
+        clearTimeout(unmountTimer);
+      };
+    }
+  }, [hideThankYou]);
+
   // Format currency strictly in Philippine Peso
   const formatCurrency = (val: number) => {
     return `₱${val.toLocaleString('en-PH', {
@@ -52,229 +66,117 @@ export const ReceiptTicketCard: React.FC<ReceiptTicketCardProps> = ({
   const actualChange = changeAmount !== undefined ? changeAmount : Math.max(0, parsedCash - transaction.total);
 
   return (
-    <div
-      className={
-        hideThankYou
-          ? 'w-full relative overflow-visible [clip-path:polygon(-100%_0px,200%_0px,200%_9999px,-100%_9999px)]'
-          : 'w-full relative'
-      }
-    >
+    <>
+      {showConfetti && <ConfettiExplosion />}
       <div
-        id="receipt-ticket-card"
-        className={`w-full relative flex flex-col ${
+        className={
           hideThankYou
-            ? 'min-h-[340px] drop-shadow-[0_12px_14px_rgba(37,40,37,0.09)]'
-            : 'drop-shadow-[0_12px_28px_rgba(0,0,0,0.07)]'
-        }`}
+            ? 'w-full relative overflow-visible [clip-path:polygon(-100%_0px,200%_0px,200%_9999px,-100%_9999px)]'
+            : 'w-full relative'
+        }
       >
-      {/* Top Section: If hideThankYou is true, cut directly on the horizontal broken line so the semi-circle notches become quarter-circles */}
-      {hideThankYou ? (
-        <div className="flex items-stretch h-[18px] w-full select-none relative z-10 -mb-[1px]">
-          {/* Left Quarter-Circle Notch: Exactly the lower quarter of the semi-circle cutout */}
-          <svg
-            width="24"
-            height="18"
-            viewBox="0 0 24 18"
-            className="flex-shrink-0"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-hidden="true"
-          >
-            {/* White card body carving out an authentic quarter-circle notch at the top-left corner */}
-            <path
-              d="M 16,0 A 16 16 0 0 1 0,16 L 0,18 L 24,18 L 24,0 Z"
-              fill="#FFFFFF"
-            />
-            {/* Horizontal broken line starting from the apex of the quarter-circle notch */}
-            <line
-              x1="16"
-              y1="1"
-              x2="24"
-              y2="1"
-              stroke="#D5D9DE"
-              strokeWidth="2"
-              strokeDasharray="4 4"
-            />
-          </svg>
+        <div
+          id="receipt-ticket-card"
+          className={`w-full relative flex flex-col ${
+            hideThankYou
+              ? 'min-h-[340px] drop-shadow-[0_12px_14px_rgba(37,40,37,0.09)]'
+              : 'drop-shadow-[0_12px_28px_rgba(0,0,0,0.07)]'
+          }`}
+        >
+        {/* Top Section: If hideThankYou is true, cut directly on the horizontal broken line so the semi-circle notches become quarter-circles */}
+        {hideThankYou ? (
+          <div className="flex items-stretch h-[18px] w-full select-none relative z-10 -mb-[1px]">
+            {/* Left Quarter-Circle Notch: Exactly the lower quarter of the semi-circle cutout */}
+            <svg
+              width="16"
+              height="18"
+              viewBox="0 0 16 18"
+              className="flex-shrink-0"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M 16,0 A 16 16 0 0 1 0,16 L 0,18 L 16,18 Z"
+                fill="#FFFFFF"
+              />
+            </svg>
 
-          {/* Middle Broken / Dashed Cut Line along the top edge */}
-          <div className="flex-1 bg-white border-t-2 border-dashed border-[#D5D9DE]" />
+            {/* Middle Broken / Dashed Cut Line along the top edge */}
+            <div className="flex-1 bg-white border-t-2 border-dashed border-[#D5D9DE]" />
 
-          {/* Right Quarter-Circle Notch: Exactly the lower quarter of the semi-circle cutout */}
-          <svg
-            width="24"
-            height="18"
-            viewBox="0 0 24 18"
-            className="flex-shrink-0"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-hidden="true"
-          >
-            {/* White card body carving out an authentic quarter-circle notch at the top-right corner */}
-            <path
-              d="M 8,0 A 16 16 0 0 0 24,16 L 24,18 L 0,18 L 0,0 Z"
-              fill="#FFFFFF"
-            />
-            {/* Horizontal broken line ending at the apex of the quarter-circle notch */}
-            <line
-              x1="0"
-              y1="1"
-              x2="8"
-              y2="1"
-              stroke="#D5D9DE"
-              strokeWidth="2"
-              strokeDasharray="4 4"
-            />
-          </svg>
-        </div>
-      ) : (
-        <>
-          {/* Top Header Section */}
-          <div className="bg-white rounded-t-[28px] pt-8 px-6 pb-2 text-center">
-            {/* Colorful Festive Party Popper Graphic */}
-            <div className="w-16 h-16 mx-auto mb-3 flex items-center justify-center">
-              <svg
-                viewBox="0 0 68 68"
-                className="w-16 h-16"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                aria-hidden="true"
-              >
-                {/* Streamers & Confetti Ribbons */}
-                <path
-                  d="M38 15C42 10 45 17 49 12C51 9 55 13 58 9"
-                  stroke="#10B981"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  fill="none"
-                />
-                <path
-                  d="M44 24C49 22 47 17 52 16C55 15 57 19 60 17"
-                  stroke="#EF4444"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  fill="none"
-                />
-                <path
-                  d="M43 32C47 32 50 30 53 28"
-                  stroke="#10B981"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  fill="none"
-                />
-                <path
-                  d="M33 13C35 9 38 9 40 6"
-                  stroke="#F59E0B"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  fill="none"
-                />
-
-                {/* Confetti Dots */}
-                <circle cx="47" cy="19" r="2" fill="#F59E0B" />
-                <circle cx="36" cy="8" r="2" fill="#EF4444" />
-                <circle cx="41" cy="6" r="1.8" fill="#F97316" />
-                <circle cx="56" cy="22" r="2" fill="#10B981" />
-                <circle cx="52" cy="10" r="1.6" fill="#EC4899" />
-                <circle cx="38" cy="2" r="1.5" fill="#3B82F6" />
-
-                {/* Party Popper Horn / Cone */}
-                <g transform="translate(6, 10)">
-                  <path
-                    d="M10 44 L32 18 C33 19 34 20 35 22 L17 48 C14 46.5 12 45.2 10 44 Z"
-                    fill="#F97316"
-                  />
-                  <path
-                    d="M17 48 L35 22 C36 24 36.5 26 36.5 28 L23 51 C20.5 50.2 18.5 49.2 17 48 Z"
-                    fill="#EF4444"
-                  />
-                  <path
-                    d="M10 44 C8.5 42 7.5 39.8 7 37.5 L24 14 C26 15 28 16.5 29.5 18 L10 44 Z"
-                    fill="#FBBF24"
-                  />
-                  {/* White Stripes */}
-                  <path
-                    d="M14 36 L26 22"
-                    stroke="#FFFFFF"
-                    strokeWidth="2.8"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M18 42 L30 28"
-                    stroke="#FFFFFF"
-                    strokeWidth="2.8"
-                    strokeLinecap="round"
-                  />
-                  <circle cx="9" cy="45" r="2.5" fill="#DC2626" />
-                </g>
-              </svg>
-            </div>
-
-            {/* Heading */}
-            <h2 className="text-[23px] font-bold text-[#1C1E21] tracking-tight">
-              Thank you
-            </h2>
-            <p className="text-[13.5px] text-[#6E746F] mt-1 max-w-[260px] mx-auto leading-relaxed">
-              Your payment has been processed successfully.
-            </p>
+            {/* Right Quarter-Circle Notch: Exactly the lower quarter of the semi-circle cutout */}
+            <svg
+              width="16"
+              height="18"
+              viewBox="0 0 16 18"
+              className="flex-shrink-0"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M 0,0 A 16 16 0 0 0 16,16 L 16,18 L 0,18 Z"
+                fill="#FFFFFF"
+              />
+            </svg>
           </div>
+        ) : (
+          <>
+            {/* Top Header Section */}
+            <div className="bg-white rounded-t-[28px] pt-8 px-6 pb-2 text-center">
+              {/* Success Checkmark Icon */}
+              <div className="p-3 bg-emerald-50 text-emerald-600 rounded-full w-16 h-16 mx-auto mb-3 flex items-center justify-center animate-in zoom-in-50 delay-300 duration-500 shadow-xs">
+                <CheckCircleIcon className="w-10 h-10 text-emerald-600 animate-in zoom-in-75 delay-500 duration-500" />
+              </div>
+
+              {/* Heading */}
+              <h2 className="text-[23px] font-bold text-[#1C1E21] tracking-tight">
+                Thank you
+              </h2>
+              <p className="text-[13.5px] text-[#6E746F] mt-1 max-w-[260px] mx-auto leading-relaxed">
+                Your payment has been processed successfully.
+              </p>
+            </div>
 
           {/* Perforated Divider with TRUE TRANSPARENT HOLES */}
           <div className="flex items-stretch h-8 select-none relative z-10">
             {/* Left Notch: 100% transparent cutout hole, seamlessly revealing the background */}
             <svg
-              width="24"
-              height="34"
-              viewBox="0 0 24 34"
-              className="flex-shrink-0 -my-[1px]"
+              width="16"
+              height="32"
+              viewBox="0 0 16 32"
+              className="flex-shrink-0"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
             >
               {/* White shape with concave semicircle arc carved out */}
               <path
-                d="M 0,1 A 16 16 0 0 1 0,33 L 24,34 L 24,0 L 0,0 Z"
+                d="M 0,0 A 16 16 0 0 1 0,32 L 16,32 L 16,0 Z"
                 fill="#FFFFFF"
-              />
-              {/* Dashed connector starting at the edge of the hole */}
-              <line
-                x1="16"
-                y1="17"
-                x2="24"
-                y2="17"
-                stroke="#D5D9DE"
-                strokeWidth="2"
-                strokeDasharray="4 4"
               />
             </svg>
 
             {/* Middle Dashed Divider */}
-            <div className="flex-1 bg-white flex items-center -my-[1px] py-[1px]">
+            <div className="flex-1 bg-white flex items-center justify-center">
               <div className="w-full border-b-2 border-dashed border-[#D5D9DE]" />
             </div>
 
             {/* Right Notch: 100% transparent cutout hole, seamlessly revealing the background */}
             <svg
-              width="24"
-              height="34"
-              viewBox="0 0 24 34"
-              className="flex-shrink-0 -my-[1px]"
+              width="16"
+              height="32"
+              viewBox="0 0 16 32"
+              className="flex-shrink-0"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
             >
               {/* White shape with concave semicircle arc carved out */}
               <path
-                d="M 24,1 A 16 16 0 0 0 24,33 L 0,34 L 0,0 L 24,0 Z"
+                d="M 16,0 A 16 16 0 0 0 16,32 L 0,32 L 0,0 Z"
                 fill="#FFFFFF"
-              />
-              {/* Dashed connector ending at the edge of the hole */}
-              <line
-                x1="0"
-                y1="17"
-                x2="8"
-                y2="17"
-                stroke="#D5D9DE"
-                strokeWidth="2"
-                strokeDasharray="4 4"
               />
             </svg>
           </div>
@@ -289,11 +191,11 @@ export const ReceiptTicketCard: React.FC<ReceiptTicketCardProps> = ({
             : 'pt-4 pb-4 space-y-4'
         }`}
       >
-        {/* Ticket ID & Amount Row */}
+        {/* Receipt ID & Amount Row */}
         <div className="flex items-start justify-between gap-3">
           <div>
             <span className="block text-[11px] font-medium text-[#7A807B]">
-              Ticket ID
+              Receipt ID
             </span>
             <span className="text-[14px] font-bold text-[#252825] font-mono tracking-tight">
               {transaction.transactionNumber}
@@ -481,8 +383,9 @@ export const ReceiptTicketCard: React.FC<ReceiptTicketCardProps> = ({
             />
           </React.Fragment>
         ))}
+        </div>
       </div>
     </div>
-    </div>
+    </>
   );
 };

@@ -96,16 +96,17 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({
             >
               {/* Main Content Area */}
               <div className="flex-1 flex flex-col items-center justify-center text-center">
-                {/* Clean Geometric Brand Visual */}
+                {/* App Logo Brand Visual */}
                 <div
                   id="brand-visual-grid"
-                  className="w-[110px] h-[110px] mb-12 grid grid-cols-2 gap-2.5 items-end"
-                  aria-label="StockApp Brand Icon"
+                  className="w-24 h-24 mb-8 rounded-3xl bg-white border border-[#DEE3DE] shadow-sm flex items-center justify-center p-2.5 overflow-hidden"
+                  aria-label="StockApp Brand Logo"
                 >
-                  <div id="shape-1" className="h-[60%] bg-[#4F8065] rounded-[8px]" />
-                  <div id="shape-2" className="h-[100%] bg-[#4F8065] opacity-85 rounded-[8px]" />
-                  <div id="shape-3" className="h-[80%] bg-[#4F8065] opacity-60 rounded-[8px]" />
-                  <div id="shape-4" className="h-[40%] bg-[#9F3F46] rounded-[8px]" />
+                  <img
+                    src="/icon_192.png"
+                    alt="StockApp Logo"
+                    className="w-full h-full object-contain rounded-2xl"
+                  />
                 </div>
 
                 {/* Welcoming Headline */}

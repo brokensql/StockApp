@@ -71,19 +71,47 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Custom Navy Blue Toast overrides - snugly hugging text width across the entire app */
+  /* Custom Navy Blue Toast overrides - snugly hugging text width across the entire app and perfectly centered at the header */
   [data-sonner-toaster] {
-    --width: fit-content !important;
-    width: fit-content !important;
-    max-width: calc(100vw - 32px) !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
+    position: fixed !important;
+    top: 16px !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100vw !important;
     display: flex !important;
     justify-content: center !important;
+    align-items: center !important;
+    transform: none !important;
     pointer-events: none !important;
+    z-index: 999999 !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
   }
 
-  [data-sonner-toaster] [data-sonner-toast] {
+  [data-sonner-toaster] > ol,
+  [data-sonner-toaster] ol {
+    position: relative !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    list-style: none !important;
+  }
+
+  [data-sonner-toaster] [data-sonner-toast],
+  [data-sonner-toaster] [data-sonner-toast][data-x-position="center"] {
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    width: -moz-fit-content !important;
+    width: fit-content !important;
+    max-width: calc(100vw - 32px) !important;
     background-color: #0F172A !important;
     color: #FFFFFF !important;
     border: 1px solid rgba(51, 65, 85, 0.4) !important;
@@ -92,14 +120,12 @@
     border-radius: 14px !important;
     padding: 8px 15px !important;
     min-height: unset !important;
-    width: fit-content !important;
-    max-width: calc(100vw - 32px) !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
     display: inline-flex !important;
     align-items: center !important;
+    justify-content: center !important;
     gap: 8px !important;
     pointer-events: auto !important;
+    box-sizing: border-box !important;
   }
 
   [data-sonner-toaster] [data-sonner-toast] [data-content] {
@@ -138,44 +164,85 @@
   }
 }
 
-/* Hardware-accelerated Laser Scanner & Glowing Dots Animation */
-@keyframes laser-sweep {
+/* CamScanner Document Scanner Style Animations (Red Theme) */
+@keyframes camscanner-sweep {
   0% {
-    top: 8%;
-    opacity: 0.85;
+    top: 5%;
   }
   50% {
-    top: 92%;
-    opacity: 1;
+    top: 95%;
   }
   100% {
-    top: 8%;
-    opacity: 0.85;
+    top: 5%;
   }
 }
 
-@keyframes dot-pulse {
+@keyframes curtain-down-fade {
+  0%, 45% {
+    opacity: 1;
+  }
+  49%, 97% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes curtain-up-fade {
+  0%, 47% {
+    opacity: 0;
+  }
+  51%, 95% {
+    opacity: 1;
+  }
+  99%, 100% {
+    opacity: 0;
+  }
+}
+
+@keyframes particle-flicker {
   0%, 100% {
-    transform: scale(0.9);
-    filter: drop-shadow(0 0 4px #ef4444);
+    opacity: 0.15;
+    transform: scale(0.85);
   }
   50% {
-    transform: scale(1.3);
-    filter: drop-shadow(0 0 10px #ef4444) drop-shadow(0 0 18px #ff4d4d);
+    opacity: 0.9;
+    transform: scale(1.2);
   }
 }
 
-.animate-laser-sweep {
-  animation: laser-sweep 2.4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
-  will-change: top, opacity;
+.animate-camscanner-sweep {
+  animation: camscanner-sweep 2.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  will-change: top;
 }
 
-.animate-laser-sweep-fast {
-  animation: laser-sweep 1.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
-  will-change: top, opacity;
+.animate-camscanner-sweep-fast {
+  animation: camscanner-sweep 1.7s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  will-change: top;
 }
 
-.animate-dot-pulse {
-  animation: dot-pulse 1.4s ease-in-out infinite;
-  will-change: transform, filter;
+.animate-curtain-down {
+  animation: curtain-down-fade 2.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  will-change: opacity;
+}
+
+.animate-curtain-down-fast {
+  animation: curtain-down-fade 1.7s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  will-change: opacity;
+}
+
+.animate-curtain-up {
+  animation: curtain-up-fade 2.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  will-change: opacity;
+}
+
+.animate-curtain-up-fast {
+  animation: curtain-up-fade 1.7s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+  will-change: opacity;
+}
+
+.animate-particle-flicker {
+  animation: particle-flicker 1.8s ease-in-out infinite;
+  will-change: opacity, transform;
 }

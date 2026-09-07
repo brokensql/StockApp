@@ -2,8 +2,8 @@ import { SaleTransaction } from '../types';
 
 export const INITIAL_SALES: SaleTransaction[] = [
   {
-    id: 'tx-1048',
-    transactionNumber: 'TX-1048',
+    id: 'tx-sa-05',
+    transactionNumber: 'SA-05',
     timestamp: 'Today, 9:42 AM',
     items: [
       {
@@ -21,8 +21,8 @@ export const INITIAL_SALES: SaleTransaction[] = [
     primaryItemName: 'Canned Sardines',
   },
   {
-    id: 'tx-1047',
-    transactionNumber: 'TX-1047',
+    id: 'tx-sa-04',
+    transactionNumber: 'SA-04',
     timestamp: 'Today, 9:18 AM',
     items: [
       {
@@ -47,8 +47,8 @@ export const INITIAL_SALES: SaleTransaction[] = [
     primaryItemName: 'Coffee 3-in-1',
   },
   {
-    id: 'tx-1046',
-    transactionNumber: 'TX-1046',
+    id: 'tx-sa-03',
+    transactionNumber: 'SA-03',
     timestamp: 'Today, 8:54 AM',
     items: [
       {
@@ -66,8 +66,8 @@ export const INITIAL_SALES: SaleTransaction[] = [
     primaryItemName: 'Instant Noodles',
   },
   {
-    id: 'tx-1045',
-    transactionNumber: 'TX-1045',
+    id: 'tx-sa-02',
+    transactionNumber: 'SA-02',
     timestamp: 'Today, 8:12 AM',
     items: [
       {
@@ -106,8 +106,8 @@ export const INITIAL_SALES: SaleTransaction[] = [
     primaryItemName: 'Cooking Oil 1L',
   },
   {
-    id: 'tx-1044',
-    transactionNumber: 'TX-1044',
+    id: 'tx-sa-01',
+    transactionNumber: 'SA-01',
     timestamp: 'Today, 7:45 AM',
     items: [
       {

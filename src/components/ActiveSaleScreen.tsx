@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Product, SaleItem, SaleTransaction, PaymentMethod } from '../types';
 import { formatPHTTimestamp } from '../utils/philippineDate';
+import { getNextReceiptId } from '../utils/receiptNumber';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 import { ReceiptTicketCard } from './ReceiptTicketCard';
 
@@ -23,6 +24,7 @@ interface ActiveSaleScreenProps {
   initialItems?: SaleItem[];
   initialUnrecognizedBarcode?: string | null;
   onAddNewProductWithBarcode?: (barcode: string) => void;
+  existingSales?: SaleTransaction[];
 }
 
 export const ActiveSaleScreen: React.FC<ActiveSaleScreenProps> = ({
@@ -32,8 +34,9 @@ export const ActiveSaleScreen: React.FC<ActiveSaleScreenProps> = ({
   initialItems = [],
   initialUnrecognizedBarcode = null,
   onAddNewProductWithBarcode,
+  existingSales = [],
 }) => {
-  const [cart, setCart] = useState<SaleItem[]>(initialItems);
+  const [cart, setCart] = useState<SaleItem[]>(() => initialItems || []);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [cashTendered, setCashTendered] = useState<string>('');
   const [completedTx, setCompletedTx] = useState<SaleTransaction | null>(null);
@@ -44,27 +47,10 @@ export const ActiveSaleScreen: React.FC<ActiveSaleScreenProps> = ({
   );
   const [itemToDelete, setItemToDelete] = useState<{ id: string; name: string } | null>(null);
 
-  // Sync initialItems if they change on mount or prop update
+  // Sync initialItems when prop changes from parent (e.g. from fresh barcode scan)
   useEffect(() => {
-    if (initialItems && initialItems.length > 0) {
-      setCart((prev) => {
-        // Merge or replace
-        if (prev.length === 0) return initialItems;
-        const map = new Map<string, SaleItem>();
-        prev.forEach((item) => map.set(item.productId, { ...item }));
-        initialItems.forEach((item) => {
-          if (map.has(item.productId)) {
-            const existing = map.get(item.productId)!;
-            map.set(item.productId, {
-              ...existing,
-              quantity: existing.quantity + item.quantity,
-            });
-          } else {
-            map.set(item.productId, { ...item });
-          }
-        });
-        return Array.from(map.values());
-      });
+    if (initialItems) {
+      setCart(initialItems);
     }
   }, [initialItems]);
 
@@ -193,7 +179,7 @@ export const ActiveSaleScreen: React.FC<ActiveSaleScreenProps> = ({
     const nowEpoch = now.getTime();
     const timeStr = formatPHTTimestamp(now);
 
-    const txNumber = `TX-${Math.floor(1000 + Math.random() * 9000)}`;
+    const txNumber = getNextReceiptId(existingSales);
 
     const newTransaction: SaleTransaction = {
       id: `tx-${nowEpoch}`,
@@ -604,10 +590,6 @@ export const ActiveSaleScreen: React.FC<ActiveSaleScreenProps> = ({
           }
         }}
         products={products}
-        onItemScanned={(prod) => {
-          handleAddToCart(prod);
-          setUnrecognizedBarcode(null);
-        }}
         title="Scan Barcode"
       />
 
